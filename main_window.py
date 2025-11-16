@@ -647,10 +647,8 @@ class MainWindow(tk.Tk):
 
         samples_frame = ttk.Frame(new_window)
         samples_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
-
-        sample_files = _list_csvs()
-        if not sample_files:
-            ttk.Label(samples_frame, text="(No CSV files found)").pack(pady=6)
+        list_container = ttk.Frame(samples_frame)
+        list_container.pack(fill=tk.BOTH, expand=True)
 
         def _run_rheo(csv_path):
             try:
@@ -664,11 +662,45 @@ class MainWindow(tk.Tk):
             except Exception as exc:
                 messagebox.showerror("Rheology", f"Failed to launch reader:\n{exc}")
 
-        for sample in sample_files:
-            sample_name = os.path.splitext(sample)[0]
-            full_path = os.path.join(path, sample)
-            btn = ttk.Button(samples_frame, text=sample_name, command=lambda p=full_path: _run_rheo(p))
-            btn.pack(fill=tk.X, pady=2)
+        def _rename_file(original_name, entry_widget):
+            new_base = entry_widget.get().strip()
+            if not new_base:
+                messagebox.showerror("Rheology", "New file name cannot be empty.")
+                return
+            base, ext = os.path.splitext(original_name)
+            new_name = new_base if new_base.lower().endswith(ext.lower()) else f"{new_base}{ext}"
+            if new_name == original_name:
+                return
+            old_path = os.path.join(path, original_name)
+            new_path = os.path.join(path, new_name)
+            if os.path.exists(new_path):
+                messagebox.showerror("Rheology", f"A file named '{new_name}' already exists.")
+                return
+            try:
+                os.rename(old_path, new_path)
+                _build_rows()
+            except Exception as exc:
+                messagebox.showerror("Rheology", f"Failed to rename file:\n{exc}")
+
+        def _build_rows():
+            for child in list_container.winfo_children():
+                child.destroy()
+            sample_files = _list_csvs()
+            if not sample_files:
+                ttk.Label(list_container, text="(No CSV files found)").pack(pady=6)
+                return
+            for sample in sample_files:
+                row = ttk.Frame(list_container)
+                row.pack(fill=tk.X, pady=2)
+                display = os.path.splitext(sample)[0]
+                full_path = os.path.join(path, sample)
+                ttk.Button(row, text=display,
+                           command=lambda p=full_path: _run_rheo(p)).pack(side=tk.LEFT)
+                name_var = tk.StringVar(value=display)
+                entry = ttk.Entry(row, textvariable=name_var)
+                entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
+                ttk.Button(row, text="Rename",
+                           command=lambda s=sample, e=entry: _rename_file(s, e)).pack(side=tk.LEFT)
 
         def _process_all():
             lst = _list_csvs()
@@ -678,6 +710,7 @@ class MainWindow(tk.Tk):
             for s in lst:
                 _run_rheo(os.path.join(path, s))
         ttk.Button(new_window, text="Process all Rheology data", command=_process_all, width=24).pack(pady=5, fill=tk.X)
+        _build_rows()
 
     def open_saxs_folder(self, path, name):
         path = _clean_user_path(path)

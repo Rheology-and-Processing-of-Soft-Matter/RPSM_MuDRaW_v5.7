@@ -123,37 +123,78 @@ def _show_plot_window(path: str,
                       visc_sec: Optional[List[float]],
                       stress_sec: Optional[List[float]],
                       T_beg: List[float], T_end: List[float],
-                      S_beg: List[float], S_end: List[float]) -> None:
+                      S_beg: List[float], S_end: List[float],
+                      *,
+                      steady_rates: Optional[List[Optional[float]]] = None,
+                      steady_viscs: Optional[List[Optional[float]]] = None,
+                      steady_sec: Optional[float] = None,
+                      allow_refresh: bool = False,
+                      refresh_callback = None) -> None:
     root = tk.Tk()
     root.title(f"Rheology preview — {os.path.basename(path)}")
     try:
-        root.geometry("1000x600")
+        root.geometry("1100x620")
     except Exception:
         pass
+
+    control = ttk.Frame(root)
+    control.pack(fill=tk.X, padx=12, pady=(10, 4))
+    ttk.Label(control, text="Steady window (s):").pack(side=tk.LEFT)
+    steady_var = tk.StringVar(value=f"{steady_sec:.4g}" if steady_sec is not None else "")
+    steady_entry = ttk.Entry(control, textvariable=steady_var, width=10,
+                             state=("normal" if allow_refresh else "readonly"))
+    steady_entry.pack(side=tk.LEFT, padx=(6, 12))
+
+    def _handle_refresh():
+        if not allow_refresh or refresh_callback is None:
+            return
+        try:
+            new_val = float(steady_var.get())
+            if new_val <= 0:
+                raise ValueError
+        except Exception:
+            messagebox.showerror("Rheology", "Steady window must be a positive number.")
+            return
+        refresh_callback(new_val)
+        plt.close(fig)
+        root.destroy()
+
+    if allow_refresh:
+        ttk.Button(control, text="Refresh", command=_handle_refresh).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(control, text="Update steady window and reprocess outputs.").pack(side=tk.LEFT)
 
     frame = ttk.Frame(root)
     frame.pack(fill=tk.BOTH, expand=True)
 
-    fig, ax1 = plt.subplots(figsize=(10, 5))
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    ax_time = axes[0]
+    ax_rate = ax_time.twinx()
+    ax_steady = axes[1]
     canvas = FigureCanvasTkAgg(fig, master=frame)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     def _render():
+        ax_time.cla()
+        ax_rate.cla()
+        ax_steady.cla()
+
         if t_sec is None:
             t_plot = list(range(len(rate_sec or visc_sec or [])))
-            ax1.set_xlabel("sample index")
+            ax_time.set_xlabel("sample index")
         else:
             t_plot = t_sec
-            ax1.set_xlabel("time (s)")
+            ax_time.set_xlabel("time (s)")
 
-        # Clean series for plotting
-        def _clean_pos(series):
+        def _clean_pos(series, positive_only=True):
             if series is None:
                 return None
             out = []
             for v in series:
                 try:
-                    out.append(v if (v is not None and math.isfinite(v) and v > 0) else math.nan)
+                    ok = (v is not None and math.isfinite(v))
+                    if positive_only:
+                        ok = ok and (v > 0)
+                    out.append(v if ok else math.nan)
                 except Exception:
                     out.append(math.nan)
             return out
@@ -161,72 +202,75 @@ def _show_plot_window(path: str,
         rate_clean = _clean_pos(rate_sec)
         visc_clean = _clean_pos(visc_sec)
 
-        # Left axis: shear rate (log)
         any_plotted = False
         if rate_clean is not None and any(math.isfinite(v) for v in rate_clean):
-            ax1.plot(t_plot, rate_clean, label="Shear rate [1/s]", linewidth=1.0)
-            ax1.set_ylabel("Shear rate [1/s]")
-            ax1.set_yscale('log')
+            ax_time.plot(t_plot, rate_clean, label="Shear rate [1/s]", linewidth=1.0)
+            ax_time.set_ylabel("Shear rate [1/s]")
+            ax_time.set_yscale('log')
             any_plotted = True
 
-        # Right axis: viscosity (log) or shear stress (linear/log) if viscosity is missing
-        ax2 = ax1.twinx()
         if visc_clean is not None and any(math.isfinite(v) for v in visc_clean):
-            ax2.plot(t_plot, visc_clean, label="Viscosity [Pa·s]", linewidth=1.0, alpha=0.9)
-            ax2.set_ylabel("Viscosity [Pa·s]")
-            ax2.set_yscale('log')
+            ax_rate.plot(t_plot, visc_clean, label="Viscosity [Pa·s]", linewidth=1.0, alpha=0.9, color="tab:orange")
+            ax_rate.set_ylabel("Viscosity [Pa·s]")
+            ax_rate.set_yscale('log')
             any_plotted = True
         else:
-            # fall back to shear stress if available
-            def _clean_pos2(series):
-                if series is None:
-                    return None
-                out = []
-                for v in series:
-                    try:
-                        out.append(v if (v is not None and math.isfinite(v)) else math.nan)
-                    except Exception:
-                        out.append(math.nan)
-                return out
-            stress_clean = _clean_pos2(stress_sec)
+            stress_clean = _clean_pos(stress_sec, positive_only=False)
             if stress_clean is not None and any(math.isfinite(v) for v in stress_clean):
-                ax2.plot(t_plot, stress_clean, label="Shear stress [Pa]", linewidth=1.0, linestyle='--', alpha=0.9)
-                ax2.set_ylabel("Shear stress [Pa]")
-                try:
-                    finite_vals = [v for v in stress_clean if math.isfinite(v) and v > 0]
-                    if finite_vals and (max(finite_vals)/max(min(finite_vals), 1e-12) > 50):
-                        ax2.set_yscale('log')
-                except Exception:
-                    pass
+                ax_rate.plot(t_plot, stress_clean, label="Shear stress [Pa]", linewidth=1.0, linestyle='--', alpha=0.9, color="tab:green")
+                ax_rate.set_ylabel("Shear stress [Pa]")
+                finite_vals = [v for v in stress_clean if math.isfinite(v) and abs(v) > 0]
+                if finite_vals and (max(finite_vals)/max(min(abs(v) for v in finite_vals), 1e-12) > 50):
+                    ax_rate.set_yscale('log')
                 any_plotted = True
 
-        # If nothing was plottable, show a message so the window isn't blank
         if not any_plotted:
-            ax1.text(0.5, 0.5, "No plottable data detected", transform=ax1.transAxes, ha='center', va='center')
+            ax_time.text(0.5, 0.5, "No plottable data detected", transform=ax_time.transAxes, ha='center', va='center')
 
-        ax1.grid(True, which='both', alpha=0.2)
+        ax_time.grid(True, which='both', alpha=0.2)
         try:
-            ax1.legend(loc='upper left')
+            ax_time.legend(loc='upper left')
         except Exception:
             pass
         try:
-            ax2.legend(loc='upper right')
+            ax_rate.legend(loc='upper right')
         except Exception:
             pass
 
-        # Vertical lines: cyan at T_beg, red at S_end
         for x in T_beg:
             if x is not None:
-                ax1.axvline(x, color='cyan', linewidth=1.0)
+                ax_time.axvline(x, color='cyan', linewidth=1.0)
         for x in S_end:
             if x is not None:
-                ax1.axvline(x, color='red', linewidth=1.0)
+                ax_time.axvline(x, color='red', linewidth=1.0)
 
-        ax1.set_title("Shear rate (left) and viscosity/stress (right) vs time — cyan=T_begin, red=S_end")
+        ax_time.set_title("Time traces — cyan=T_begin, red=S_end")
+
+        # Steady scatter plot
+        scatter_points = []
+        if steady_rates and steady_viscs:
+            for r, v in zip(steady_rates, steady_viscs):
+                try:
+                    if r is not None and v is not None and math.isfinite(r) and math.isfinite(v) and r > 0 and v > 0:
+                        scatter_points.append((r, v))
+                except Exception:
+                    continue
+        if scatter_points:
+            xs, ys = zip(*scatter_points)
+            ax_steady.scatter(xs, ys, color="tab:blue")
+            ax_steady.set_xscale('log')
+            ax_steady.set_yscale('log')
+            ax_steady.set_xlabel("Shear rate [1/s]")
+            ax_steady.set_ylabel("Steady viscosity [Pa·s]")
+            ax_steady.set_title("Steady-state viscosity vs shear rate")
+            ax_steady.grid(True, which='both', alpha=0.2)
+        else:
+            ax_steady.text(0.5, 0.5, "No steady averages computed", transform=ax_steady.transAxes,
+                           ha='center', va='center')
+
         fig.tight_layout()
         canvas.draw()
 
-    # Defer render to after the window is visible (prevents blank first frame on some systems)
     root.after(10, _render)
 
     btns = ttk.Frame(root)
@@ -598,7 +642,8 @@ def _segments_by_markers(data_rows: List[List[str]]) -> List[Tuple[int, int]]:
 # Main processing
 # -----------------
 
-def process_file(path: str, mode: str = 'triggered', steady_sec: float = 10.0, rate_thresh: float = 5.0, show_preview: bool = True) -> Dict:
+def process_file(path: str, mode: str = 'triggered', steady_sec: float = 10.0, rate_thresh: float = 5.0,
+                 show_preview: bool = True, preview_payload: Optional[Dict] = None) -> Dict:
     rows, enc, delim = _read_csv_rows(path)
     # Trim leading empty columns, detect header row and normalize header lines
     rows = _trim_leading_empty_columns(rows, sample_rows=50)
@@ -818,7 +863,7 @@ def process_file(path: str, mode: str = 'triggered', steady_sec: float = 10.0, r
     for i, seg in enumerate(interval_rows[:10], 1):
         print(f"  {i:02d}: rate={seg['avg_shear_rate']}, visc={seg['avg_viscosity']}, tau={seg['avg_shear_stress']}, steady_sec={seg.get('steady_window_sec')}, npts={seg.get('steady_npoints')}")
 
-    # Preview plot window
+    # Prepare preview series for plotting / refresh UI
     def _series(col_idx: Optional[int]) -> Optional[List[float]]:
         if col_idx is None:
             return None
@@ -852,9 +897,38 @@ def process_file(path: str, mode: str = 'triggered', steady_sec: float = 10.0, r
     except Exception:
         pass
 
+    preview_data = {
+        't_sec': t_sec,
+        'rate_series': rate_series,
+        'visc_series': visc_series,
+        'stress_series': stress_series,
+        'T_beg': T_beg,
+        'T_end': T_end,
+        'S_beg': S_beg,
+        'S_end': S_end,
+        'steady_rates': steady_rates,
+        'steady_viscs': steady_viscs,
+    }
+    if preview_payload is not None:
+        preview_payload.clear()
+        preview_payload.update(preview_data)
+
     if show_preview:
         try:
-            _show_plot_window(path, t_sec, rate_series, visc_series, stress_series, T_beg, T_end, S_beg, S_end)
+            _show_plot_window(
+                path,
+                t_sec,
+                rate_series,
+                visc_series,
+                stress_series,
+                T_beg,
+                T_end,
+                S_beg,
+                S_end,
+                steady_rates=steady_rates,
+                steady_viscs=steady_viscs,
+                steady_sec=steady_sec,
+            )
         except Exception as e:
             try:
                 print("[Rheology] preview failed:", e)
@@ -862,6 +936,47 @@ def process_file(path: str, mode: str = 'triggered', steady_sec: float = 10.0, r
                 pass
 
     return out
+
+
+def _interactive_process(csv_path: str, mode: str, steady_initial: float, rate_thresh: float) -> None:
+    """Process a CSV with an interactive preview that supports steady-window refreshes."""
+    steady_value = steady_initial
+    while True:
+        payload: Dict = {}
+        process_file(
+            csv_path,
+            mode=mode,
+            steady_sec=steady_value,
+            rate_thresh=rate_thresh,
+            show_preview=False,
+            preview_payload=payload,
+        )
+
+        refresh_request: Dict[str, float] = {}
+
+        def _handle_refresh(new_val: float):
+            refresh_request['steady'] = new_val
+
+        _show_plot_window(
+            csv_path,
+            payload.get('t_sec'),
+            payload.get('rate_series'),
+            payload.get('visc_series'),
+            payload.get('stress_series'),
+            payload.get('T_beg', []),
+            payload.get('T_end', []),
+            payload.get('S_beg', []),
+            payload.get('S_end', []),
+            steady_rates=payload.get('steady_rates'),
+            steady_viscs=payload.get('steady_viscs'),
+            steady_sec=steady_value,
+            allow_refresh=True,
+            refresh_callback=_handle_refresh,
+        )
+
+        if 'steady' not in refresh_request:
+            break
+        steady_value = refresh_request['steady']
 
 
 def main():
@@ -878,7 +993,6 @@ def main():
     p = args.path
     if os.path.isdir(p):
         rh = get_rheology_folder_from_path(p) or p
-        # pick newest CSV in Rheology folder
         csvs = [os.path.join(rh, f) for f in os.listdir(rh) if f.lower().endswith('.csv') and not f.startswith('.')]
         if not csvs:
             raise SystemExit("No CSV files found in Rheology")
@@ -893,7 +1007,10 @@ def main():
     except Exception as _e:
         print("[Rheology] CSV open preview failed:", _e)
 
-    process_file(p, mode=args.mode, steady_sec=args.steady_sec, rate_thresh=args.rate_threshold, show_preview=args.show_preview)
+    if args.show_preview:
+        _interactive_process(p, args.mode, args.steady_sec, args.rate_threshold)
+    else:
+        process_file(p, mode=args.mode, steady_sec=args.steady_sec, rate_thresh=args.rate_threshold, show_preview=False)
 
 
 if __name__ == "__main__":
