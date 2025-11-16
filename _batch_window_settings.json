@@ -1,0 +1,20 @@
+{
+  "overfolder": "/Users/kroland/Library/Mobile Documents/com~apple~CloudDocs/Temp/FR/Nguyen/202511 AFTER SPIKE ADJUSTMENT",
+  "modal_saxs": true,
+  "modal_rheo": true,
+  "skip_fresh": false,
+  "dryrun": false,
+  "log_level": "INFO",
+  "dg_template": "/Users/kroland/Library/Mobile Documents/com~apple~CloudDocs/Temp/FR/Nguyen/Multiscale_template_v12.dgraph",
+  "dg_cli": "/Applications/DataGraph.app/Contents/Library/dgraph",
+  "run_writer": false,
+  "workers": 8,
+  "saxs_smoothing": 0.04,
+  "saxs_sigma": 0.5,
+  "saxs_tmin": 2.0,
+  "saxs_tmax": 180.0,
+  "saxs_no_plots": false,
+  "rheo_mode": "nontriggered",
+  "rheo_steady": 5.0,
+  "rheo_no_plots": false
+}

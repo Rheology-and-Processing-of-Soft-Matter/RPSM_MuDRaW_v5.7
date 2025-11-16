@@ -1,0 +1,11 @@
+SAXS:
+1) add radial data
+
+VISCOSITY:
+1) Flag intervals that don't reach Steadt State
+2) SSw and FSw
+3) Stability test
+
+Other:
+1) Create example file
+2) the rename button does not work; it is quite importnat and it should change the name of the folder, preferably

@@ -1,0 +1,11 @@
+numpy
+scipy
+matplotlib
+pandas
+opencv-python
+Pillow
+imageio
+psutil
+plotly
+statsmodels
+moepy

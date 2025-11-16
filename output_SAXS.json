@@ -1,0 +1,23 @@
+[
+    {
+        "name": "CNC4 PS45_scan_46329-46349_azi_saxs0_46329-46349",
+        "files": [
+            "/Users/kroland/Library/CloudStorage/SynologyDrive-PI_Data/CNC4 PS 45MIN SS/SAXS/CNC4 PS45_scan_46329-46349/_Processed/1_CNC4 PS45_scan_46329-46349_azi_saxs0_46329-46349_export.csv",
+            "/Users/kroland/Library/CloudStorage/SynologyDrive-PI_Data/CNC4 PS 45MIN SS/SAXS/CNC4 PS45_scan_46329-46349/_Processed/2_CNC4 PS45_scan_46329-46349_azi_saxs0_46329-46349_raw_flat_export.csv"
+        ]
+    },
+    {
+        "name": "CNC4 PS45_scan_46329-46349_azi_saxs1_46329-46349",
+        "files": [
+            "/Users/kroland/Library/CloudStorage/SynologyDrive-PI_Data/CNC4 PS 45MIN SS/SAXS/CNC4 PS45_scan_46329-46349/_Processed/1_CNC4 PS45_scan_46329-46349_azi_saxs1_46329-46349_export.csv",
+            "/Users/kroland/Library/CloudStorage/SynologyDrive-PI_Data/CNC4 PS 45MIN SS/SAXS/CNC4 PS45_scan_46329-46349/_Processed/2_CNC4 PS45_scan_46329-46349_azi_saxs1_46329-46349_raw_flat_export.csv"
+        ]
+    },
+    {
+        "name": "scan_46329-46349_archive_azi_saxs1_46329-46349",
+        "files": [
+            "/Users/kroland/Library/CloudStorage/SynologyDrive-PI_Data/CNC4 PS 45MIN SS/SAXS/scan_46329-46349_archive/_Processed/1_scan_46329-46349_archive_azi_saxs1_46329-46349_export.csv",
+            "/Users/kroland/Library/CloudStorage/SynologyDrive-PI_Data/CNC4 PS 45MIN SS/SAXS/scan_46329-46349_archive/_Processed/2_scan_46329-46349_archive_azi_saxs1_46329-46349_raw_flat_export.csv"
+        ]
+    }
+]
