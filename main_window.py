@@ -171,7 +171,7 @@ from _Helpers.PLI_helper import (
 # Add the Helpers directory to the Python path
 
 from common import confirm_clear_all, update_actions_list, add_action, load_renamed_samples, load_last_folder_internal, save_last_folder, rename_sample, set_global_log_widget
-from _Helpers.SAXS_helper import get_last_used_saxs_parameters, engage_saxs
+from _Helpers.SAXS_helper import get_last_used_saxs_parameters, engage_saxs, save_default_saxs_parameters
 sys.path.append(os.path.join(os.path.dirname(__file__), '_Helpers'))
 from Rheology_helper import process_all_rheology_files
 from write_template_window import WriteTemplateWindow  # Ensure this import is present
@@ -729,6 +729,7 @@ class MainWindow(tk.Tk):
         lower_var = tk.DoubleVar(value=lower_default)
         upper_var = tk.DoubleVar(value=upper_default)
         fast_var = tk.BooleanVar(value=False)
+        persist_defaults_var = tk.BooleanVar(value=False)
 
         params_frame = ttk.LabelFrame(layout, text="SAXS parameters")
         params_frame.pack(fill=tk.X, padx=10, pady=(10, 8))
@@ -741,7 +742,11 @@ class MainWindow(tk.Tk):
         ttk.Entry(params_frame, width=8, textvariable=lower_var).grid(row=1, column=1, sticky="w", padx=4, pady=2)
         ttk.Label(params_frame, text="θ max").grid(row=1, column=2, sticky="w", padx=4, pady=2)
         ttk.Entry(params_frame, width=8, textvariable=upper_var).grid(row=1, column=3, sticky="w", padx=4, pady=2)
-        ttk.Checkbutton(params_frame, text="Fast (no plots)", variable=fast_var).grid(row=2, column=0, columnspan=4, sticky="w", padx=4, pady=(4, 2))
+
+        options_row = ttk.Frame(params_frame)
+        options_row.grid(row=2, column=0, columnspan=4, sticky="w", padx=4, pady=(4, 2))
+        ttk.Checkbutton(options_row, text="Fast (no plots)", variable=fast_var).pack(side=tk.LEFT)
+        ttk.Checkbutton(options_row, text="Set as default", variable=persist_defaults_var).pack(side=tk.LEFT, padx=(12, 0))
 
         ttk.Label(layout, text=f"Processing {name} folder: {path}").pack(pady=8)
 
@@ -771,6 +776,13 @@ class MainWindow(tk.Tk):
                     update_actions_list,
                     fast_var=fast_var.get(),
                 )
+                if persist_defaults_var.get():
+                    save_default_saxs_parameters(
+                        smoo_var.get(),
+                        sigma_var.get(),
+                        lower_var.get(),
+                        upper_var.get(),
+                    )
             except Exception as exc:
                 messagebox.showerror("SAXS", f"Failed to process {sample_label}:\n{exc}")
 

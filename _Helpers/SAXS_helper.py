@@ -60,6 +60,36 @@ def _materialize_prefixed_files(files, category, out_dir):
 # --- UI flows ---
 
 base_path = os.path.dirname(os.path.abspath(__file__))
+_SAXS_DEFAULTS_FILE = os.path.abspath(os.path.join(base_path, "..", "_saxs_defaults.json"))
+_SAXS_DEFAULT_VALUES = (0.04, 0.05, 70, 170)
+
+
+def _load_default_file():
+    try:
+        with open(_SAXS_DEFAULTS_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+            return (
+                float(data.get("smoothing", _SAXS_DEFAULT_VALUES[0])),
+                float(data.get("sigma", _SAXS_DEFAULT_VALUES[1])),
+                float(data.get("theta_min", _SAXS_DEFAULT_VALUES[2])),
+                float(data.get("theta_max", _SAXS_DEFAULT_VALUES[3])),
+            )
+    except Exception:
+        return _SAXS_DEFAULT_VALUES
+
+
+def save_default_saxs_parameters(smoothing, sigma, theta_min, theta_max):
+    payload = {
+        "smoothing": float(smoothing),
+        "sigma": float(sigma),
+        "theta_min": float(theta_min),
+        "theta_max": float(theta_max),
+    }
+    try:
+        with open(_SAXS_DEFAULTS_FILE, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+    except Exception as exc:
+        print(f"[SAXS] Failed to persist default parameters: {exc}")
 
 
 def engage_saxs(path, sample_name, window, smoo_entry, sigma_entry, lower_limit_entry, upper_limit_entry, add_action, update_actions_list, fast_var=None):
@@ -222,8 +252,7 @@ def process_all_saxs_files(path, sample_folders, window, add_action, update_acti
 
 
 def get_last_used_saxs_parameters():
-    # Placeholder for stateful recall
-    return 0.04, 0.05, 70, 170
+    return _load_default_file()
 
 
 def process_sample_SAXS(window, path, subfolder_name, sample_name, add_action, update_actions_list, load_last_folder=None):
