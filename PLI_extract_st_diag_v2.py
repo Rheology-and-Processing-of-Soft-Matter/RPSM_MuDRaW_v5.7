@@ -665,12 +665,39 @@ def setup_gui():
 
 def extract_space_time_interactive(video_path, out_prefix):
     """
-    Opens an interactive Tkinter GUI for selecting extraction parameters on a preview frame of the video.
-    Saves per-video config and legacy preview_config.json and runs process_video_with_config with selected parameters.
+    Opens an interactive Tkinter GUI for selecting extraction parameters on a preview frame of one video
+    (the last one alphabetically when multiple are provided). The chosen parameters are then applied to
+    all selected videos.
     """
-    cap = cv2.VideoCapture(video_path)
+    if isinstance(video_path, (list, tuple, set)):
+        raw_paths = list(video_path)
+    else:
+        raw_paths = [video_path]
+
+    video_candidates = []
+    seen = set()
+    for entry in raw_paths:
+        if not entry:
+            continue
+        abs_path = os.path.abspath(entry)
+        if not os.path.isfile(abs_path):
+            print(f"[PLI] Skipping non-file selection: {entry}")
+            continue
+        if abs_path in seen:
+            continue
+        seen.add(abs_path)
+        video_candidates.append(abs_path)
+
+    if not video_candidates:
+        raise FileNotFoundError("No valid video files provided for extraction.")
+
+    target_videos = list(video_candidates)
+    preview_video = max(target_videos, key=lambda p: os.path.basename(p).lower())
+    video_path = preview_video  # Keep legacy variable name for the interactive UI
+
+    cap = cv2.VideoCapture(preview_video)
     if not cap.isOpened():
-        print(f"Failed to open video: {video_path}")
+        print(f"Failed to open video: {preview_video}")
         return
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     cap.release()
@@ -678,7 +705,7 @@ def extract_space_time_interactive(video_path, out_prefix):
     def _fetch_frame_gray(frame_idx: int):
         """Read a single frame from disk and return it as grayscale; None on failure."""
         idx = max(0, int(frame_idx))
-        capture = cv2.VideoCapture(video_path)
+        capture = cv2.VideoCapture(preview_video)
         if not capture.isOpened():
             return None
         if idx:
@@ -697,13 +724,13 @@ def extract_space_time_interactive(video_path, out_prefix):
         frame_gray = _fetch_frame_gray(0)
         preview_idx = 0
     if frame_gray is None:
-        print(f"Could not read a preview frame from: {video_path}")
+        print(f"Could not read a preview frame from: {preview_video}")
         return
     pil_img = Image.fromarray(frame_gray)
     h, w = pil_img.size[1], pil_img.size[0]
 
     # Load previously saved config (per video or legacy)
-    loaded_config = load_config_for_video(video_path) or {}
+    loaded_config = load_config_for_video(preview_video) or {}
     initial_mode = loaded_config.get("mode", "horizontal")
     initial_params = loaded_config.get("params", {})
     initial_n_angles = int(loaded_config.get("n_angles", _last_n_angles))
@@ -721,6 +748,13 @@ def extract_space_time_interactive(video_path, out_prefix):
 
     root = tk.Toplevel()
     root.title("Space-Time Interactive Extraction")
+
+    if len(target_videos) > 1:
+        info = ttk.Label(root, text=(
+            f"Previewing: {os.path.basename(preview_video)} (alphabetically last)\n"
+            f"{len(target_videos)} videos will be processed with these settings."
+        ), foreground="#666666", justify="left")
+        info.pack(fill="x", padx=10, pady=(6, 0))
 
     mode_var = tk.StringVar(value=initial_mode)
     current_frame_idx = preview_idx
@@ -1161,25 +1195,30 @@ def extract_space_time_interactive(video_path, out_prefix):
         }
         if mode == "circular":
             config["n_angles"] = n_angles  # legacy field retained
-        base_no_ext, _ = os.path.splitext(video_path)
-        per_video_config_path = base_no_ext + "_st_config.json"
-        folder = os.path.dirname(video_path)
-        legacy_config_path = os.path.join(folder, "preview_config.json")
-        # Save per-video config
+        def _persist_config_for(path):
+            base_no_ext, _ = os.path.splitext(path)
+            per_video_config_path = base_no_ext + "_st_config.json"
+            folder = os.path.dirname(path)
+            legacy_config_path = os.path.join(folder, "preview_config.json")
+            try:
+                with open(per_video_config_path, "w") as f:
+                    json.dump(config, f, indent=4)
+                print(f"Saved per-video config to {per_video_config_path}")
+            except Exception as e:
+                tk.messagebox.showerror("File error", f"Could not save {per_video_config_path}: {e}")
+                raise
+            try:
+                with open(legacy_config_path, "w") as f:
+                    json.dump(config, f, indent=4)
+                print(f"Updated legacy config at {legacy_config_path}")
+            except Exception as e:
+                print(f"Warning: could not update legacy preview_config.json: {e}")
+
         try:
-            with open(per_video_config_path, "w") as f:
-                json.dump(config, f, indent=4)
-            print(f"Saved per-video config to {per_video_config_path}")
-        except Exception as e:
-            tk.messagebox.showerror("File error", f"Could not save {per_video_config_path}: {e}")
+            for vid in target_videos:
+                _persist_config_for(vid)
+        except Exception:
             return
-        # Also update legacy folder-level config for batch fallback
-        try:
-            with open(legacy_config_path, "w") as f:
-                json.dump(config, f, indent=4)
-            print(f"Updated legacy config at {legacy_config_path}")
-        except Exception as e:
-            print(f"Warning: could not update legacy preview_config.json: {e}")
         print("Starting video processing")
         engage_btn.config(state="disabled")
         progress_var.set("Starting…")
@@ -1200,7 +1239,12 @@ def extract_space_time_interactive(video_path, out_prefix):
 
         def worker():
             try:
-                process_video_with_config(video_path, config, progress_cb=gui_progress_cb)
+                total_targets = len(target_videos)
+                for idx, vid in enumerate(target_videos, start=1):
+                    def _cb(done, total, msg, idx=idx):
+                        prefix = f"[{idx}/{total_targets}] " if total_targets > 1 else ""
+                        gui_progress_cb(done, total, prefix + msg)
+                    process_video_with_config(vid, config, progress_cb=_cb)
             except Exception as e:
                 def _err():
                     progress_var.set(f"Error: {e}")
@@ -1230,10 +1274,9 @@ if __name__ == "__main__":
     import sys
     try:
         if len(sys.argv) < 2:
-            print("Usage: python PLI_extract_st_diag_v2.py /path/to/video")
+            print("Usage: python PLI_extract_st_diag_v2.py /path/to/video [extra_videos…]")
         else:
-            video_path = sys.argv[1]
-            extract_space_time_interactive(video_path, "output")
+            extract_space_time_interactive(sys.argv[1:], "output")
     except Exception as e:
         import traceback
         print("❌ ERROR in PLI_extract_st_diag_v2:")

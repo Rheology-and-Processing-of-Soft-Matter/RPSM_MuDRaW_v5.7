@@ -39,12 +39,6 @@ def browse_time_source(self):
         return
     orig_path = path
     self._last_time_source_path = path
-    # Let the user inspect and choose the time column explicitly (once)
-    try:
-        insp = TimeSourceInspector(self, path)
-        self.wait_window(insp)
-    except Exception as _e:
-        print("[DBG] Inspector not shown:", _e)
 
     try:
         rows, prefer_flag, _delim = engine.read_csv_rows(path)
@@ -74,6 +68,15 @@ def browse_time_source(self):
         except Exception as e:
             messagebox.showwarning("Warning", f"Failed to auto-convert Anton Paar file: {e}")
 
+    # Attempt automatic time-column detection; fall back to manual picker if needed
+    auto_detected = _auto_assign_time_column(self, path)
+    if not auto_detected:
+        messagebox.showwarning(
+            "Time column",
+            "Could not detect a 'Time of Day' column automatically. Please pick it manually.",
+        )
+        _prompt_time_column_selection(self, path)
+
     # Ensure FPS is initialized
     if not hasattr(self, '_fps'):
         try:
@@ -96,6 +99,37 @@ def browse_time_source(self):
         self._compute_and_populate_from_time_source(path, mode)
     except Exception as e:
         print("[DBG] populate intervals failed:", e)
+
+
+def _ensure_override_dict(self):
+    if not hasattr(self, '_TIME_COL_OVERRIDE') or not isinstance(getattr(self, '_TIME_COL_OVERRIDE'), dict):
+        self._TIME_COL_OVERRIDE = {}
+
+
+def _auto_assign_time_column(self, path):
+    try:
+        idx = engine.detect_time_column_index(path)
+    except Exception as exc:
+        print(f"[DBG] auto-detect time column failed: {exc}")
+        idx = None
+    if idx is None:
+        return False
+    try:
+        _ensure_override_dict(self)
+        self._TIME_COL_OVERRIDE[path] = int(idx)
+        print(f"[DBG] Auto-detected Time column index {idx} for {os.path.basename(path)}")
+        return True
+    except Exception as exc:
+        print(f"[DBG] Failed to record auto-detected column: {exc}")
+        return False
+
+
+def _prompt_time_column_selection(self, path):
+    try:
+        insp = TimeSourceInspector(self, path)
+        self.wait_window(insp)
+    except Exception as exc:
+        print("[DBG] Inspector not shown:", exc)
 
 def refresh_intervals(self):
     path = self._last_time_source_path
@@ -198,11 +232,12 @@ def _compute_and_populate_from_time_source(self, path, mode):
         ttk.Label(self.interval_frame, text="(Manual mode: enter intervals below)").grid(row=1, column=0, padx=6, pady=6, sticky="w")
 
 class PreviewEndWindow(tk.Toplevel):
-    def __init__(self, parent, image_path, init_percent=5.0):
+    def __init__(self, parent, image_path=None, image_array=None, init_percent=5.0):
         super().__init__(parent)
         self.title("Preview end region")
         self.parent = parent
         self.image_path = image_path
+        self._image_array = image_array
         self.percent_var = tk.DoubleVar(value=float(init_percent))
         self._ax = None
         self._canvas = None
@@ -240,6 +275,10 @@ class PreviewEndWindow(tk.Toplevel):
         self.refresh_view()
 
     def _load_image(self):
+        if self._image_array is not None:
+            return np.array(self._image_array, copy=True)
+        if not self.image_path:
+            raise RuntimeError("No image data available for preview.")
         try:
             import cv2
             bgr = cv2.imread(self.image_path, cv2.IMREAD_COLOR)
@@ -247,7 +286,6 @@ class PreviewEndWindow(tk.Toplevel):
                 raise RuntimeError(f"Failed to read image: {self.image_path}")
             rgb = bgr[:, :, ::-1]
         except Exception:
-            # Fallback: try matplotlib imread (slower, supports PNG/JPG)
             import matplotlib.image as mpimg
             rgb = mpimg.imread(self.image_path)
             if rgb.ndim == 2:
@@ -318,26 +356,12 @@ class PreviewEndWindow(tk.Toplevel):
 
 def preview_end_region(self):
     """Open the end-region preview for the current image (default last 5%)."""
-    # Determine image to preview: prefer argv images (launched via subprocess), else prompt
-    img_path = None
-    try:
-        if len(sys.argv) > 2:
-            # prefer the first image arg that exists (relative to cwd if needed)
-            for p in sys.argv[2:]:
-                if os.path.isfile(p):
-                    img_path = p; break
-                rp = os.path.join(os.getcwd(), p)
-                if os.path.isfile(rp):
-                    img_path = rp; break
-    except Exception:
-        pass
-    if not img_path:
-        img_path = filedialog.askopenfilename(parent=self, title="Select space–time image",
-                                              filetypes=[("Images", "*.png;*.jpg;*.jpeg;*.tif;*.tiff"), ("All files", "*.*")])
-    if not img_path:
+    data = self._prepare_image_data(allow_dialog=True)
+    if not data:
         return
     try:
-        win = PreviewEndWindow(self, img_path, init_percent=5.0)
+        rgb_copy = np.array(data["rgb"], copy=True)
+        win = PreviewEndWindow(self, image_array=rgb_copy, init_percent=5.0)
         self.wait_window(win)
     except Exception as e:
         messagebox.showerror("Preview error", f"Failed to preview end region:\n{e}")
@@ -345,136 +369,130 @@ def preview_end_region(self):
 
 # --- ENGAGE action: Show full space–time image with cyan/red lines at intervals ---
 def apply_crop_and_compute(self):
-    """Render the full space–time image with cyan/red interval lines.
-    Cyan = T_begin, Red = S_end. Uses current mode and the accepted end offset if available.
-    """
-    # Determine image to show: prefer argv images, else ask
-    img_path = None
-    try:
-        if len(sys.argv) > 2:
-            for p in sys.argv[2:]:
-                if os.path.isfile(p):
-                    img_path = p; break
-                rp = os.path.join(os.getcwd(), p)
-                if os.path.isfile(rp):
-                    img_path = rp; break
-    except Exception:
-        pass
-    if not img_path:
-        img_path = filedialog.askopenfilename(parent=self, title="Select space–time image",
-                                              filetypes=[("Images", "*.png;*.jpg;*.jpeg;*.tif;*.tiff"), ("All files", "*.*")])
-    if not img_path:
+    """Render the combined space–time image with cyan/red interval lines and optional interlude gap."""
+    data = self._prepare_image_data(allow_dialog=True)
+    if not data:
         return
 
-    # Load image (BGR→RGB)
-    try:
-        import cv2
-        bgr = cv2.imread(img_path, cv2.IMREAD_COLOR)
-        if bgr is None:
-            raise RuntimeError(f"Failed to read image: {img_path}")
-        rgb = bgr[:, :, ::-1]
-    except Exception:
-        import matplotlib.image as mpimg
-        rgb = mpimg.imread(img_path)
-        if rgb.ndim == 2:
-            rgb = np.repeat(rgb[..., None], 3, axis=2)
-
+    current_data = data
+    rgb = current_data["rgb"]
     H, W = rgb.shape[:2]
 
-    # Get intervals from current mode/time-source
+    def _reload_image(allow_dialog=False):
+        nonlocal current_data, rgb, H, W
+        fresh = self._prepare_image_data(allow_dialog=allow_dialog)
+        if not fresh:
+            return False
+        current_data = fresh
+        rgb = fresh["rgb"]
+        H, W = rgb.shape[:2]
+        return True
+
     path = getattr(self, '_last_time_source_path', None)
     if not path or not os.path.isfile(path):
         messagebox.showwarning("No time source", "Load a time source first.")
         return
 
-    mode_sel = self.acq_mode.get()
-    mode = ("Triggered" if mode_sel.startswith("Triggered") else ("Reference" if "reference" in mode_sel.lower() else "Manual"))
-
-    if mode == "Triggered":
-        T_beg, T_end, S_beg, S_end = engine.extract_triggered_pairs_from_time_column(
-            path, override=getattr(self, '_TIME_COL_OVERRIDE', {})
-        )
-        n = min(len(T_beg), len(T_end), len(S_beg), len(S_end))
-        # Compute widths in frames
-        fps = float(getattr(self, '_fps', 29.97))
-        widths = []  # list of (wt, ws) per pair
-        for i in range(n):
-            wt = max(0.0, float(T_end[i]) - float(T_beg[i])) * fps
-            ws = max(0.0, float(S_end[i]) - float(S_beg[i])) * fps
-            widths.append((int(round(wt)), int(round(ws))))
-    elif mode == "Reference":
-        b_ref, e_ref = engine.parse_reference_steps_from_csv(
-            path, override=getattr(self, '_TIME_COL_OVERRIDE', {})
-        )
-        try:
-            steady_sec = float(self.steady_sec_var.get())
-        except Exception:
-            steady_sec = 10.0
-        print(f"[UI] Reference steady_sec = {steady_sec} s")
-        T_beg, T_end, S_beg, S_end = engine.compute_reference_intervals_with_steady(
-            b_ref, e_ref, steady_sec
-        )
-        n = min(len(T_beg), len(T_end), len(S_beg), len(S_end))
-        fps = float(getattr(self, '_fps', 29.97))
-        widths = []
-        for i in range(n):
-            wt = max(0.0, float(T_end[i]) - float(T_beg[i])) * fps
-            ws = max(0.0, float(S_end[i]) - float(S_beg[i])) * fps
-            widths.append((int(round(wt)), int(round(ws))))
-    else:
-        messagebox.showinfo("Manual mode", "Manual mode preview not implemented yet.")
-        return
-
-    # Determine anchor: end-of-last-interval x on the image (default right edge)
-    end_offset = int(getattr(self, '_end_offset_from_right', 0) or 0)
-    end_x = W - max(0, min(end_offset, W))
-
-    # Build figure in a new window
     win = tk.Toplevel(self)
     win.title("Preview with intervals")
     fig, ax = plt.subplots(figsize=(min(12, W/120), min(6, H/200)))
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
     canvas = FigureCanvasTkAgg(fig, master=win)
-    ax.imshow(rgb, aspect='auto')
-    ax.set_xlabel("x (px)"); ax.set_ylabel("y (px)")
-
-    # Place lines using absolute seconds: x(t) = end_x - (t_last - t)*fps
-    fps = float(getattr(self, '_fps', 29.97))
-    if mode == "Triggered":
-        if n == 0:
-            messagebox.showinfo("No intervals", "No Triggered intervals detected.")
-            return
-        t_last = float(S_end[-1])  # last steady end in seconds
-        # Cyan = T_begin, Red = S_end
-        x_cyan = [int(round(end_x - (t_last - float(t)) * fps)) for t in T_beg]
-        x_red  = [int(round(end_x - (t_last - float(t)) * fps)) for t in S_end]
-    else:  # Reference
-        if n == 0:
-            messagebox.showinfo("No intervals", "No Reference intervals detected.")
-            return
-        t_last = float(S_end[-1])
-        x_cyan = [int(round(end_x - (t_last - float(t)) * fps)) for t in T_beg]
-        x_red  = [int(round(end_x - (t_last - float(t)) * fps)) for t in S_end]
-
-    # Draw with clipping to image bounds
-    for x0 in x_cyan:
-        if 0 <= x0 < W:
-            ax.axvline(x0, color='cyan', linewidth=1.0)
-    for xr in x_red:
-        if 0 <= xr < W:
-            ax.axvline(xr, color='red', linewidth=1.0)
-
-    canvas.draw()
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-    # --- Accept & Stitch controls ---
+    current_mode = None
+    current_T_beg = []
+    current_T_end = []
+    current_S_beg = []
+    current_S_end = []
+    end_x = W
+
+    def _render():
+        nonlocal current_mode, current_T_beg, current_T_end, current_S_beg, current_S_end, end_x
+        if rgb is None or rgb.size == 0:
+            return
+        ax.clear()
+        ax.imshow(rgb, aspect='auto')
+        ax.set_xlabel("x (px)"); ax.set_ylabel("y (px)")
+        mode_sel = self.acq_mode.get()
+        mode = ("Triggered" if mode_sel.startswith("Triggered") else ("Reference" if "reference" in mode_sel.lower() else "Manual"))
+        current_mode = mode
+
+        if mode == "Manual":
+            canvas.draw_idle()
+            messagebox.showinfo("Manual mode", "Manual mode preview not implemented yet.")
+            return
+
+        if mode == "Triggered":
+            T_beg, T_end, S_beg, S_end = engine.extract_triggered_pairs_from_time_column(
+                path, override=getattr(self, '_TIME_COL_OVERRIDE', {})
+            )
+        else:
+            b_ref, e_ref = engine.parse_reference_steps_from_csv(
+                path, override=getattr(self, '_TIME_COL_OVERRIDE', {})
+            )
+            try:
+                steady_sec = float(self.steady_sec_var.get())
+            except Exception:
+                steady_sec = 10.0
+            T_beg, T_end, S_beg, S_end = engine.compute_reference_intervals_with_steady(b_ref, e_ref, steady_sec)
+
+        n = min(len(T_beg), len(T_end), len(S_beg), len(S_end))
+        if n == 0:
+            canvas.draw_idle()
+            messagebox.showinfo("No intervals", f"No {mode} intervals detected.")
+            return
+
+        current_T_beg, current_T_end = T_beg, T_end
+        current_S_beg, current_S_end = S_beg, S_end
+
+        fps_val = float(getattr(self, '_fps', 29.97))
+        end_offset = int(getattr(self, '_end_offset_from_right', 0) or 0)
+        end_x = W - max(0, min(end_offset, W))
+        t_last = float(S_end[-1])
+        x_cyan = [int(round(end_x - (t_last - float(t)) * fps_val)) for t in T_beg]
+        x_red = [int(round(end_x - (t_last - float(t)) * fps_val)) for t in S_end]
+
+        for x0 in x_cyan:
+            if 0 <= x0 < W:
+                ax.axvline(x0, color='cyan', linewidth=1.0)
+        for xr in x_red:
+            if 0 <= xr < W:
+                ax.axvline(xr, color='red', linewidth=1.0)
+
+        canvas.draw_idle()
+
+    _render()
+
+    interlude_row = ttk.Frame(win)
+    interlude_row.pack(fill=tk.X, padx=10, pady=(6, 0), anchor="w")
+    ttk.Label(interlude_row, text="Interlude (px):").pack(side=tk.LEFT)
+    interlude_var = tk.IntVar(value=int(getattr(self, "_interlude_px", 0)))
+    ttk.Entry(interlude_row, textvariable=interlude_var, width=8).pack(side=tk.LEFT, padx=(4, 6))
+
+    def _apply_interlude_gap():
+        try:
+            gap_val = max(0, int(interlude_var.get()))
+        except Exception:
+            gap_val = 0
+        self._interlude_px = gap_val
+        if _reload_image(allow_dialog=False):
+            _render()
+
+    ttk.Button(interlude_row, text="Refresh", command=_apply_interlude_gap).pack(side=tk.LEFT)
+
     ctrl = ttk.Frame(win)
     ctrl.pack(fill=tk.X, padx=10, pady=(0,10))
 
     def _stitch_now():
         try:
             import cv2
-            # target size from UI: Height + Aspect Ratio (W/H)
+            if current_data is None:
+                messagebox.showwarning("Stitch", "No image data available.")
+                return
+            if not current_S_beg or not current_S_end:
+                messagebox.showwarning("Stitch", "No intervals available for stitching.")
+                return
             try:
                 target_h = int(self.scaled_height_var.get())
             except Exception:
@@ -484,21 +502,15 @@ def apply_crop_and_compute(self):
             except Exception:
                 aspect = 1.426
             target_h = max(1, target_h)
-            aspect = max(0.1, aspect)  # prevent degenerate widths
+            aspect = max(0.1, aspect)
 
-            # Build x-start/x-end for steady tiles in chronological order
             fps_loc = float(getattr(self, '_fps', 29.97))
-            if mode == "Triggered":
-                t_last = float(S_end[-1])
-                xs0 = [int(round(end_x - (t_last - float(s)) * fps_loc)) for s in S_beg]
-                xs1 = [int(round(end_x - (t_last - float(s)) * fps_loc)) for s in S_end]
-            else:  # Reference
-                t_last = float(S_end[-1])
-                xs0 = [int(round(end_x - (t_last - float(s)) * fps_loc)) for s in S_beg]
-                xs1 = [int(round(end_x - (t_last - float(s)) * fps_loc)) for s in S_end]
+            t_last = float(current_S_end[-1])
+            xs0 = [int(round(end_x - (t_last - float(s)) * fps_loc)) for s in current_S_beg]
+            xs1 = [int(round(end_x - (t_last - float(s)) * fps_loc)) for s in current_S_end]
 
-            tiles = []          # scaled tiles (preview)
-            full_tiles = []     # unscaled tiles (analysis)
+            tiles = []
+            full_tiles = []
             for x0, x1 in zip(xs0, xs1):
                 x0c = max(0, min(W, x0))
                 x1c = max(0, min(W, x1))
@@ -511,7 +523,6 @@ def apply_crop_and_compute(self):
                 messagebox.showwarning("Nothing to stitch", "No steady-state tiles could be extracted.")
                 return
 
-            # --- Unscaled stitched (analysis) → <reference>/PLI/_Temp
             unscaled = np.hstack(full_tiles)
             try:
                 base = getattr(self, 'reference_folder', None) or os.getcwd()
@@ -519,7 +530,7 @@ def apply_crop_and_compute(self):
                 os.makedirs(temp_dir, exist_ok=True)
             except Exception:
                 temp_dir = os.getcwd()
-            base_img = os.path.splitext(os.path.basename(img_path))[0]
+            base_img = current_data.get("base") or "PLI_sample"
             unscaled_name = f"{base_img}_steady_unscaled_stitched_{unscaled.shape[1]}x{unscaled.shape[0]}.png"
             unscaled_path = os.path.join(temp_dir, unscaled_name)
             try:
@@ -528,26 +539,24 @@ def apply_crop_and_compute(self):
                 bgr_unscaled = unscaled
             if not cv2.imwrite(unscaled_path, bgr_unscaled):
                 raise RuntimeError("Failed to write unscaled stitched image")
-            print("[STITCH] Wrote unscaled:", unscaled_path)
 
-            # --- Scaled stitched (preview) uses (height, aspect) ---
             n_tiles = len(full_tiles)
             target_total_w = int(round(aspect * target_h))
             min_total_w = max(n_tiles, 1)
             if target_total_w < min_total_w:
-                print(f"[STITCH] Requested width {target_total_w}px < number of tiles {n_tiles}. Using {min_total_w}px instead.")
                 target_total_w = min_total_w
 
             base_w = target_total_w // n_tiles
             rem = target_total_w - base_w * n_tiles
             tile_widths = [base_w + (1 if i < rem else 0) for i in range(n_tiles)]
 
+            scaled_tiles = []
             for tile, w_i in zip(full_tiles, tile_widths):
                 w_i = max(1, int(w_i))
                 interp = cv2.INTER_AREA if (tile.shape[0] > target_h or tile.shape[1] > w_i) else cv2.INTER_LINEAR
-                tiles.append(cv2.resize(tile, (w_i, target_h), interpolation=interp))
+                scaled_tiles.append(cv2.resize(tile, (w_i, target_h), interpolation=interp))
 
-            stitched = np.hstack(tiles)
+            stitched = np.hstack(scaled_tiles)
             if stitched.shape[0] != target_h:
                 stitched = cv2.resize(stitched, (stitched.shape[1], target_h), interpolation=cv2.INTER_NEAREST)
 
@@ -673,6 +682,11 @@ class RescaleSpaceTimeWindow(tk.Toplevel):
         # Per-dataset session persistence
         self._session_state = {}
         self._session_file = os.path.expanduser("~/.rpsm_rescale_st_session.json")
+        # Image selection + cache state
+        self._selected_image_paths = self._resolve_initial_image_paths()
+        self._rgb_cache = {}
+        self._active_image_data = None
+        self._interlude_px = 0
         # Ensure window has a proper title and initial size
         try:
             self.title("Rescale Space–Time Diagram")
@@ -727,6 +741,7 @@ class RescaleSpaceTimeWindow(tk.Toplevel):
         file_row.pack(fill=tk.X, padx=10, pady=(0,6))
         ttk.Button(file_row, text="Load time source…", command=self.browse_time_source).pack(side=tk.LEFT)
         ttk.Button(file_row, text="↻ Refresh intervals", command=self.refresh_intervals).pack(side=tk.LEFT, padx=(8,0))
+        ttk.Button(file_row, text="Pick time column…", command=self.choose_time_column).pack(side=tk.LEFT, padx=(8,0))
 
         # Reference-mode steady width (seconds), appears only when Reference is selected
         self._ref_opts = ttk.Frame(root_frame)
@@ -821,6 +836,11 @@ class RescaleSpaceTimeWindow(tk.Toplevel):
                     d["end_offset_from_right"] = int(self._end_offset_from_right)
                 if hasattr(self, "_end_abs_x"):
                     d["end_abs_x"] = int(self._end_abs_x)
+                if hasattr(self, "_interlude_px"):
+                    try:
+                        d["interlude_px"] = int(self._interlude_px)
+                    except Exception:
+                        pass
                 # Save mode
                 try:
                     d["acq_mode"] = str(self.acq_mode.get())
@@ -880,8 +900,87 @@ class RescaleSpaceTimeWindow(tk.Toplevel):
                         self.aspect_var.set(float(d["aspect_wh"]))
                     except Exception:
                         pass
+                if "interlude_px" in d:
+                    try:
+                        self._interlude_px = int(d["interlude_px"])
+                    except Exception:
+                        self._interlude_px = 0
         except Exception as e:
             print("[DBG] Failed to load session:", e)
+
+    def _resolve_initial_image_paths(self):
+        paths = []
+        cwd = os.getcwd()
+        argv = sys.argv[2:] if len(sys.argv) > 2 else []
+        for arg in argv:
+            if not arg:
+                continue
+            cand = arg if os.path.isabs(arg) else os.path.join(cwd, arg)
+            if os.path.isfile(cand):
+                paths.append(os.path.abspath(cand))
+        return paths
+
+    def _load_rgb_cached(self, path: str):
+        cache = getattr(self, "_rgb_cache", None)
+        if cache is None:
+            cache = {}
+            self._rgb_cache = cache
+        if path not in cache:
+            import cv2
+            bgr = cv2.imread(path, cv2.IMREAD_COLOR)
+            if bgr is None:
+                raise RuntimeError(f"Failed to read image: {path}")
+            cache[path] = bgr[:, :, ::-1]
+        return cache[path]
+
+    def _prepare_image_data(self, allow_dialog: bool = True):
+        paths = getattr(self, "_selected_image_paths", None)
+        if paths is None:
+            paths = self._resolve_initial_image_paths()
+            self._selected_image_paths = paths
+        if not paths:
+            if not allow_dialog:
+                return None
+            chosen = filedialog.askopenfilename(
+                parent=self,
+                title="Select space–time image",
+                filetypes=[("Images", "*.png;*.jpg;*.jpeg;*.tif;*.tiff"), ("All files", "*.*")],
+            )
+            if not chosen:
+                return None
+            chosen = os.path.abspath(chosen)
+            paths = [chosen]
+            self._selected_image_paths = paths
+        try:
+            gap = max(0, int(getattr(self, "_interlude_px", 0) or 0))
+        except Exception:
+            gap = 0
+            self._interlude_px = 0
+        if len(paths) == 1 and gap == 0:
+            rgb = self._load_rgb_cached(paths[0]).copy()
+            base = os.path.splitext(os.path.basename(paths[0]))[0]
+            data = {"rgb": rgb, "base": base, "sources": paths[:], "path": paths[0]}
+        else:
+            rgbs = [self._load_rgb_cached(p).astype(np.uint8, copy=False) for p in paths]
+            max_h = max(img.shape[0] for img in rgbs)
+            padded = []
+            for img in rgbs:
+                if img.shape[0] == max_h:
+                    padded.append(img)
+                else:
+                    canvas = np.zeros((max_h, img.shape[1], 3), dtype=np.uint8)
+                    canvas[:img.shape[0], :img.shape[1], :] = img[:img.shape[0], :img.shape[1]]
+                    padded.append(canvas)
+            tiles = []
+            for idx, arr in enumerate(padded):
+                tiles.append(arr)
+                if gap > 0 and idx < len(padded) - 1:
+                    tiles.append(np.zeros((max_h, gap, 3), dtype=np.uint8))
+            composite = np.hstack(tiles) if tiles else np.zeros((max_h, 1, 3), dtype=np.uint8)
+            base = "__".join(os.path.splitext(os.path.basename(p))[0] for p in paths)
+            data = {"rgb": composite, "base": base or "PLI_combined", "sources": paths[:], "path": None}
+        self._active_image_data = data
+        return data
 
     # --- Shims: forward UI callbacks to module-level implementations ---
     def browse_time_source(self):
@@ -890,6 +989,15 @@ class RescaleSpaceTimeWindow(tk.Toplevel):
         self._save_session()
         self._load_session()
         return result
+
+    def choose_time_column(self):
+        path = getattr(self, "_last_time_source_path", None)
+        if not path or not os.path.isfile(path):
+            messagebox.showwarning("No time source", "Load a time source before selecting the Time column.")
+            return
+        _prompt_time_column_selection(self, path)
+        # Refresh the interval table so changes take effect immediately
+        self.refresh_intervals()
 
     def refresh_intervals(self):
         result = refresh_intervals(self)

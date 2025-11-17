@@ -848,8 +848,9 @@ class MainWindow(tk.Tk):
                 if not selection:
                     messagebox.showerror("Error", "No video selected for interactive extraction.")
                     return
-                video_path = os.path.join(_clean_user_path(path), video_listbox.get(selection[0]))
-                extract_space_time_interactive(video_path, "output")
+                selected = [video_listbox.get(i) for i in selection]
+                video_paths = [os.path.join(_clean_user_path(path), name) for name in selected]
+                extract_space_time_interactive(video_paths, "output")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to launch extractor:\n{e}")
 
@@ -863,7 +864,6 @@ class MainWindow(tk.Tk):
                 image_listbox.insert(tk.END, f)
             if files:
                 image_listbox.selection_set(0)
-            messagebox.showinfo("Refresh complete", "Image list updated.")
 
         ttk.Button(new_window, text="Refresh image list", command=refresh_image_list).pack(fill=tk.X, pady=(5, 5), padx=10)
 
@@ -928,7 +928,6 @@ class MainWindow(tk.Tk):
             _stitched_map.update({os.path.basename(p): p for p in _items})
             for bp in sorted(_stitched_map.keys(), key=_natural_key):
                 stitched_listbox.insert(tk.END, bp)
-            messagebox.showinfo("Refresh complete", "Unscaled stitched list (Temp) updated.")
 
         # Now that the function is defined and widgets exist, bind the command
         refresh_stitched_btn.config(command=refresh_stitched_list)
