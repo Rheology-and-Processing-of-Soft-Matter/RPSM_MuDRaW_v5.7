@@ -60,9 +60,58 @@ def _materialize_prefixed_files(files, category, out_dir):
 # --- UI flows ---
 
 base_path = os.path.dirname(os.path.abspath(__file__))
+_SAXS_DEFAULTS_FILE = os.path.abspath(os.path.join(base_path, "..", "_saxs_defaults.json"))
+_DEFAULT_METHOD = "fitting"
+_VALID_METHODS = {"fitting", "direct"}
+_SAXS_DEFAULT_VALUES = (0.04, 0.05, 70, 170, _DEFAULT_METHOD, False)
 
 
-def engage_saxs(path, sample_name, window, smoo_entry, sigma_entry, lower_limit_entry, upper_limit_entry, add_action, update_actions_list, fast_var=None):
+def _load_default_file():
+    try:
+        with open(_SAXS_DEFAULTS_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+            return (
+                float(data.get("smoothing", _SAXS_DEFAULT_VALUES[0])),
+                float(data.get("sigma", _SAXS_DEFAULT_VALUES[1])),
+                float(data.get("theta_min", _SAXS_DEFAULT_VALUES[2])),
+                float(data.get("theta_max", _SAXS_DEFAULT_VALUES[3])),
+                str(data.get("method", _DEFAULT_METHOD)).strip().lower() or _DEFAULT_METHOD,
+                bool(data.get("mirror", _SAXS_DEFAULT_VALUES[5])),
+            )
+    except Exception:
+        return _SAXS_DEFAULT_VALUES
+
+
+def save_default_saxs_parameters(smoothing, sigma, theta_min, theta_max, method, mirror):
+    payload = {
+        "smoothing": float(smoothing),
+        "sigma": float(sigma),
+        "theta_min": float(theta_min),
+        "theta_max": float(theta_max),
+        "method": (str(method).strip().lower() or _DEFAULT_METHOD),
+        "mirror": bool(mirror),
+    }
+    try:
+        with open(_SAXS_DEFAULTS_FILE, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+    except Exception as exc:
+        print(f"[SAXS] Failed to persist default parameters: {exc}")
+
+
+def engage_saxs(
+    path,
+    sample_name,
+    window,
+    smoo_entry,
+    sigma_entry,
+    lower_limit_entry,
+    upper_limit_entry,
+    add_action,
+    update_actions_list,
+    fast_var=None,
+    method_choice=_DEFAULT_METHOD,
+    mirror_choice=False,
+):
     # Accept either live Tk widgets/BooleanVar or plain values
     def _to_float(v):
         try:
@@ -80,11 +129,20 @@ def engage_saxs(path, sample_name, window, smoo_entry, sigma_entry, lower_limit_
         except Exception:
             return False
 
+    def _to_method(val):
+        raw = val.get() if hasattr(val, "get") else val
+        raw = str(raw).strip().lower()
+        if raw not in _VALID_METHODS:
+            return _DEFAULT_METHOD
+        return raw
+
     smoo_ = _to_float(smoo_entry)
     sigma_zero = _to_float(sigma_entry)
     lower_limit = _to_float(lower_limit_entry)
     upper_limit = _to_float(upper_limit_entry)
     fast = _to_bool(fast_var)
+    method = _to_method(method_choice)
+    mirror_flag = _to_bool(mirror_choice)
 
     processed_folder = get_unified_processed_folder(path)
     print(f"Unified _Processed folder for SAXS outputs: {processed_folder}")
@@ -102,7 +160,20 @@ def engage_saxs(path, sample_name, window, smoo_entry, sigma_entry, lower_limit_
         try:
             script_path = os.path.join(base_path, '../SAXS_data_processor_v4.py')
             print(f"Running {script_path} with parameters: {path, sample_name, smoo_, sigma_zero, lower_limit, upper_limit}")
-            cmd = ['python3', script_path, path, sample_name, str(smoo_), str(sigma_zero), str(lower_limit), str(upper_limit)]
+            cmd = [
+                'python3',
+                script_path,
+                path,
+                sample_name,
+                str(smoo_),
+                str(sigma_zero),
+                str(lower_limit),
+                str(upper_limit),
+                "--method",
+                method,
+            ]
+            if mirror_flag:
+                cmd.append("--mirror")
             if fast:
                 cmd.append("--fast")
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -134,7 +205,7 @@ def engage_saxs(path, sample_name, window, smoo_entry, sigma_entry, lower_limit_
 
 
 def process_all_saxs_files(path, sample_folders, window, add_action, update_actions_list, params=None, fast=False):
-    def run_all_saxs(smoo_, sigma_zero, lower_limit, upper_limit, fast_flag=fast):
+    def run_all_saxs(smoo_, sigma_zero, lower_limit, upper_limit, method, mirror_flag, fast_flag=fast):
         for sample in sample_folders:
             sample_path = os.path.join(path, sample)
             sample_name = sample
@@ -150,7 +221,20 @@ def process_all_saxs_files(path, sample_folders, window, add_action, update_acti
             try:
                 script_path = os.path.join(base_path, '../SAXS_data_processor_v4.py')
                 print(f"Running {script_path} for {sample_name} with parameters: {sample_path, sample_name, smoo_, sigma_zero, lower_limit, upper_limit}")
-                cmd = ['python3', script_path, sample_path, sample_name, str(smoo_), str(sigma_zero), str(lower_limit), str(upper_limit)]
+                cmd = [
+                    'python3',
+                    script_path,
+                    sample_path,
+                    sample_name,
+                    str(smoo_),
+                    str(sigma_zero),
+                    str(lower_limit),
+                    str(upper_limit),
+                    "--method",
+                    method,
+                ]
+                if mirror_flag:
+                    cmd.append("--mirror")
                 if fast_flag:
                     cmd.append("--fast")
                 result = subprocess.run(cmd, capture_output=True, text=True)
@@ -179,35 +263,47 @@ def process_all_saxs_files(path, sample_folders, window, add_action, update_acti
                 continue
 
     if params:
-        smoo_, sigma_zero, lower_limit, upper_limit = params
-        run_all_saxs(smoo_, sigma_zero, lower_limit, upper_limit, fast_flag=fast)
+        smoo_, sigma_zero, lower_limit, upper_limit, method, mirror_flag = params
+        run_all_saxs(smoo_, sigma_zero, lower_limit, upper_limit, method, mirror_flag, fast_flag=fast)
         return
+
+    defaults = get_last_used_saxs_parameters()
+    smoo_def, sigma_def, lower_def, upper_def, method_def, mirror_def = defaults
 
     param_window = tk.Toplevel(window)
     param_window.title("Set Parameters for All SAXS Files")
 
     ttk.Label(param_window, text="Smoothing value (default: 0.01):").pack()
     smoo_entry = ttk.Entry(param_window)
-    smoo_entry.insert(0, "0.04")
+    smoo_entry.insert(0, str(smoo_def))
     smoo_entry.pack()
 
     ttk.Label(param_window, text="Sigma zero (default: 0.05):").pack()
     sigma_entry = ttk.Entry(param_window)
-    sigma_entry.insert(0, "0.05")
+    sigma_entry.insert(0, str(sigma_def))
     sigma_entry.pack()
 
     ttk.Label(param_window, text="Lower limit (default: 1):").pack()
     lower_limit_entry = ttk.Entry(param_window)
-    lower_limit_entry.insert(0, "1")
+    lower_limit_entry.insert(0, str(lower_def))
     lower_limit_entry.pack()
 
     ttk.Label(param_window, text="Upper limit (default: 180):").pack()
     upper_limit_entry = ttk.Entry(param_window)
-    upper_limit_entry.insert(0, "180")
+    upper_limit_entry.insert(0, str(upper_def))
     upper_limit_entry.pack()
 
     fast_var = tk.BooleanVar(value=fast)
     ttk.Checkbutton(param_window, text="Fast (no plots)", variable=fast_var).pack(pady=(4, 6))
+
+    ttk.Label(param_window, text="Method:").pack()
+    method_var = tk.StringVar(value=method_def)
+    method_frame = ttk.Frame(param_window)
+    method_frame.pack(pady=(0, 6))
+    ttk.Radiobutton(method_frame, text="Fitting", value="fitting", variable=method_var).pack(side=tk.LEFT, padx=4)
+    ttk.Radiobutton(method_frame, text="Direct", value="direct", variable=method_var).pack(side=tk.LEFT, padx=4)
+    mirror_var = tk.BooleanVar(value=mirror_def)
+    ttk.Checkbutton(param_window, text="Mirror azimuthal data", variable=mirror_var).pack(pady=(0, 6))
 
     def on_confirm():
         smoo_ = float(smoo_entry.get())
@@ -215,15 +311,16 @@ def process_all_saxs_files(path, sample_folders, window, add_action, update_acti
         lower_limit = float(lower_limit_entry.get())
         upper_limit = float(upper_limit_entry.get())
         fast_flag = bool(fast_var.get())
+        method = str(method_var.get()).strip().lower()
+        mirror_flag = bool(mirror_var.get())
         param_window.destroy()
-        run_all_saxs(smoo_, sigma_zero, lower_limit, upper_limit, fast_flag=fast_flag)
+        run_all_saxs(smoo_, sigma_zero, lower_limit, upper_limit, method, mirror_flag, fast_flag=fast_flag)
 
     ttk.Button(param_window, text="Run All", command=on_confirm).pack(pady=(0, 6))
 
 
 def get_last_used_saxs_parameters():
-    # Placeholder for stateful recall
-    return 0.04, 0.05, 70, 170
+    return _load_default_file()
 
 
 def process_sample_SAXS(window, path, subfolder_name, sample_name, add_action, update_actions_list, load_last_folder=None):
@@ -233,7 +330,7 @@ def process_sample_SAXS(window, path, subfolder_name, sample_name, add_action, u
     Signature keeps compatibility with other helpers even if some args are unused here.
     """
     # Defaults (can later be replaced by persisted values if desired)
-    smoo_default, sigma_default, lower_default, upper_default = get_last_used_saxs_parameters()
+    smoo_default, sigma_default, lower_default, upper_default, method_default, mirror_default = get_last_used_saxs_parameters()
 
     param_window = tk.Toplevel(window)
     param_window.title(f"SAXS parameters — {sample_name}")
@@ -264,14 +361,24 @@ def process_sample_SAXS(window, path, subfolder_name, sample_name, add_action, u
     upper_limit_entry.insert(0, str(upper_default))
     upper_limit_entry.grid(row=3, column=1, sticky="w", padx=4, pady=4)
 
+    # Method
+    ttk.Label(frm, text="Method").grid(row=4, column=0, sticky="w", padx=4, pady=(4, 2))
+    method_var = tk.StringVar(value=method_default)
+    method_opts = ttk.Frame(frm)
+    method_opts.grid(row=4, column=1, sticky="w", padx=4, pady=(4, 2))
+    ttk.Radiobutton(method_opts, text="Fitting", value="fitting", variable=method_var).pack(side=tk.LEFT)
+    ttk.Radiobutton(method_opts, text="Direct", value="direct", variable=method_var).pack(side=tk.LEFT, padx=(6, 0))
+    mirror_var = tk.BooleanVar(value=mirror_default)
+    ttk.Checkbutton(frm, text="Mirror azimuthal data", variable=mirror_var).grid(row=5, column=0, columnspan=2, sticky="w", padx=4, pady=(4, 4))
+
     # Fast mode checkbox (optional; wired to engage_saxs)
     fast_var = tk.BooleanVar(value=False)
     fast_chk = ttk.Checkbutton(frm, text="Fast (no plots)", variable=fast_var)
-    fast_chk.grid(row=4, column=0, columnspan=2, sticky="w", padx=4, pady=(4, 8))
+    fast_chk.grid(row=6, column=0, columnspan=2, sticky="w", padx=4, pady=(0, 8))
 
     # Buttons
     btns = ttk.Frame(frm)
-    btns.grid(row=5, column=0, columnspan=2, sticky="ew")
+    btns.grid(row=7, column=0, columnspan=2, sticky="ew")
     btns.columnconfigure(0, weight=1)
     btns.columnconfigure(1, weight=1)
 
@@ -283,6 +390,8 @@ def process_sample_SAXS(window, path, subfolder_name, sample_name, add_action, u
             lower_val = float(lower_limit_entry.get())
             upper_val = float(upper_limit_entry.get())
             fast_flag = bool(fast_var.get())
+            method_choice = method_var.get().strip().lower()
+            mirror_choice = bool(mirror_var.get())
         except ValueError:
             messagebox.showerror("Invalid input", "Please enter numeric values for all parameters.")
             return
@@ -302,6 +411,8 @@ def process_sample_SAXS(window, path, subfolder_name, sample_name, add_action, u
             add_action,
             update_actions_list,
             fast_var=fast_flag,
+            method_choice=method_choice,
+            mirror_choice=mirror_choice,
         )
 
     def on_cancel():

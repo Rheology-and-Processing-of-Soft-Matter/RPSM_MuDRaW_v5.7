@@ -1,0 +1,8 @@
+{
+  "smoothing": 0.01,
+  "sigma": 0.5,
+  "theta_min": 1.0,
+  "theta_max": 180.0,
+  "method": "direct",
+  "mirror": false
+}

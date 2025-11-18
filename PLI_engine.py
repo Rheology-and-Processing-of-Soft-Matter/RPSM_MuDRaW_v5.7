@@ -265,6 +265,37 @@ def pick_time_column_around(idx: int, data_rows: List[List[str]], prefer_comma: 
     return best
 
 
+def detect_time_column_index(path: str, header_skip: int = 8) -> Optional[int]:
+    """Best-effort automatic detection of the Time-of-Day column index for the given CSV."""
+    try:
+        rows, prefer_comma, _delim = read_csv_rows(path)
+    except Exception as exc:
+        print(f"[DBG] detect_time_column_index read failed for {path}: {exc}")
+        return None
+    rows = trim_leading_empty_columns(rows, sample_rows=300)
+    if not rows:
+        return None
+    rows2, pre_time_idx = detect_anton_paar_time_column(rows, header_skip=header_skip)
+    header, data_rows = normalize_headers(rows2, max_header_rows=2)
+
+    time_idx: Optional[int] = pre_time_idx
+    if time_idx is None:
+        for i, h in enumerate(header):
+            hl = (h or '').lower(); hl = ' '.join(hl.split())
+            if ('time of day' in hl) or ('time' in hl and 'deriv' not in hl):
+                time_idx = i
+                break
+
+    if time_idx is None:
+        return None
+
+    if data_rows:
+        best = pick_time_column_around(time_idx, data_rows, prefer_comma, scan_rows=300, min_hits=5)
+        if isinstance(best, int):
+            time_idx = best
+    return time_idx
+
+
 # -----------------------------
 # Interval extraction (Triggered / Reference) and advances
 # -----------------------------
