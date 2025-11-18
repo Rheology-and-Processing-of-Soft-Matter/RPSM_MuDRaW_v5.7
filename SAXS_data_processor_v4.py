@@ -271,8 +271,8 @@ except ImportError:
     sys.exit(1)
 
 
-def SAXS_data_processor(path_name, sample_name, smoo_, sigma_zero, lower_limit, upper_limit, plots=True):
-    print(f"Processing SAXS data with parameters: {path_name}, {sample_name}, {smoo_}, {sigma_zero}, {lower_limit}, {upper_limit}")
+def SAXS_data_processor(path_name, sample_name, smoo_, sigma_zero, lower_limit, upper_limit, plots=True, method="fitting", mirror=False):
+    print(f"Processing SAXS data with parameters: {path_name}, {sample_name}, {smoo_}, {sigma_zero}, {lower_limit}, {upper_limit}, method={method}, mirror={mirror}")
 
     # Convert limits to degrees
     limit_deg = [lower_limit, upper_limit]
@@ -352,6 +352,8 @@ def SAXS_data_processor(path_name, sample_name, smoo_, sigma_zero, lower_limit, 
             print(f"Processing data with limits: {limits}")
             try:
                 P2468OAS = hop.P2468OAS_v3_3(
+                    method,
+                    mirror,
                     angles,
                     file_part,
                     limits,
@@ -489,6 +491,17 @@ def _parse_cli_args():
     parser.add_argument("upper_limit", type=float, help="Upper angular limit (deg).")
     parser.add_argument("--fast", action="store_true", help="Skip plotting windows.")
     parser.add_argument("--no-plots", action="store_true", dest="no_plots", help="Alias for --fast.")
+    parser.add_argument(
+        "--method",
+        choices=["fitting", "direct"],
+        default="fitting",
+        help="HoP computation method.",
+    )
+    parser.add_argument(
+        "--mirror",
+        action="store_true",
+        help="Mirror azimuthal data prior to processing.",
+    )
     return parser.parse_args()
 
 
@@ -503,4 +516,6 @@ if __name__ == "__main__":
         args.lower_limit,
         args.upper_limit,
         plots=plots,
+        method=args.method,
+        mirror=args.mirror,
     )

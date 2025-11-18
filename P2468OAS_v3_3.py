@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import cm
+from matplotlib.lines import Line2D
 from scipy import ndimage
 import statsmodels.api as sm
 from scipy.optimize import curve_fit
@@ -24,6 +25,8 @@ from moepy import lowess, eda
 #import _Main_custom_LAOS_PLI_SAXS_v1 as main
 
 def P2468OAS_v3_3(
+    method,
+    mirror,
     Angles,
     File_part_,
     lims,
@@ -34,6 +37,9 @@ def P2468OAS_v3_3(
     save_prefix=None,
     window_title=None,
 ):
+    method = str(method or "fitting").strip().lower()
+    if method not in {"fitting", "direct"}:
+        method = "fitting"
     raw_input = np.array(File_part_, copy=True)
     File = raw_input.copy()
     lo_li = int(lims[0])
@@ -64,8 +70,12 @@ def P2468OAS_v3_3(
     DataShift=File.copy()
     #DataShift[0:Quarter,:]=File[Quarter:Half,:]
     #DataShift[Half:Tot_ang,:]=DataShift[0:Half,:]
-    #DataShift[Half:Tot_ang, :] = DataShift[Half-1::-1, :] #special case. for Nguyen's spikes
-    DataShift[0:Half,:]=File[Half:Tot_ang,:]               #FLIPS the side it is analyzing        
+    if mirror == True:
+        DataShift[Half:Tot_ang, :] = DataShift[Half-1::-1, :] #special case. for Nguyen's spikes
+        Criterium = 45
+    else:
+        DataShift[0:Half,:]=File[Half:Tot_ang,:]               #FLIPS the side it is analyzing        riterium
+        Criterium = 0
     DataIn_=np.zeros((DataM,DataN))
     DataIn=DataShift
     smooth=np.zeros((DataM,DataN))
@@ -118,7 +128,14 @@ def P2468OAS_v3_3(
             Index_MAXX_store[i] = ((Index_MAXX_store[i] + 90) % 180) - 90
             #    Index_MAXX_store[i]=Index_MAXX_store[i]+360
             #print(np.shape(Index_MAXX))
-            DataNorm=smooth_bak
+            DataNorm= smooth_bak
+
+    else:   
+            Index_MAXX[i] = int(DataB[lo_li:up_li].argmax(axis=0))+lo_li
+            Index_MAXX_store[i]=((Index_MAXX[i])*360/DataM)-90
+            Index_MAXX_store[i] = ((Index_MAXX_store[i] + 90) % 180) - 90
+            DataNorm = DataB
+
 
      
          
@@ -200,9 +217,9 @@ def P2468OAS_v3_3(
         ax_preview.set_box_aspect(1)
 
         ax_hop = fig.add_subplot(gs[2:, 2])
-        ax_hop.set_title("HoP vs step")
+        ax_hop.set_title("OAS vs step")
         ax_hop.set_xlabel("Step index")
-        ax_hop.set_ylabel("HoP")
+        ax_hop.set_ylabel("OAS [deg]")
     
     def Legendre_series(x,a0,a2,a4,a6,a8):
         L0=legendre(0)
@@ -248,133 +265,143 @@ def P2468OAS_v3_3(
     color_map = shared_cmap if plot else plt.get_cmap('turbo')
     colors = color_map(np.linspace(0, 1, DataN))
 
-    for j in range(0,DataN):    
-          #print(j)
-          #if Index_MAXX[j] - Quarter <0:
-          #    Y=DataNorm[int(Index_MAXX[j]+Half-Quarter):int(Index_MAXX[j]+Half+Quarter),j]/DataNorm[int(Index_MAXX[j]+Half-Quarter):int(Index_MAXX[j]+Half+Quarter),j].max(axis=0)
-          #else:
-          #    Y=DataNorm[int(Index_MAXX[j]-Quarter):int(Index_MAXX[j]+Quarter),j]/DataNorm[int(Index_MAXX[j]-Quarter):int(Index_MAXX[j]+Quarter),j].max(axis=0)
- 
-          if Index_MAXX[j] < Quarter:
-                start_idx = int(Index_MAXX[j])
-                stop_idx = int(Index_MAXX[j]+Quarter)
-                seg = DataNorm[start_idx:stop_idx, j]
-                Y = seg / seg.max(axis=0)
-          else:   
-                start_idx = int(Index_MAXX[j]-Quarter)
-                stop_idx = int(Index_MAXX[j])
-                seg = DataNorm[start_idx:stop_idx, j]
-                Y = seg / seg.max(axis=0)
-                Y = np.flip(Y)
-          XRaw1 = np.arange(0,np.size(Y),1)     
-          X=(XRaw1)*np.pi/Half   
-          print(np.size(X))
-          print(np.size(Y))
-          
-         
-          #print(Legendre_series(X,coeff[0],coeff[1],coeff[2],coeff[3]))
-          
-          sigma = np.ones(len(X))
-          #sigma[0] = 0.05
-          sigma[0] = sigma_zero
-          #sigma[1] = 0.05
-          try:
-              parametersL, _ = curve_fit(Lorentzian_Gaussian,X,Y, sigma=sigma)
-              #print(Y)
-              coeffL = parametersL
-              Fit_Lor[:,j]=Lorentzian_Gaussian(X, coeffL[0], coeffL[1], coeffL[2], coeffL[3], coeffL[4], coeffL[5], coeffL[6], coeffL[7])
-              FIT[:,j] = Fit_Lor[:,j]
-          except RuntimeError:
-              print("Lorentzian-Gaussian fit failed; switching to Legendre series")
-              #popt, pcov = curve_fit(model_func, x, y, p0=(0.1 ,1e-3, 0.1), sigma=sigma)
-              parameters, _ = curve_fit(Legendre_series,X,Y, sigma=sigma)
-              coeff = parameters
-              Fit_L0146[:,j]=Legendre_series(X,coeff[0],coeff[1],coeff[2],coeff[3],coeff[4])
-              FIT[:,j] = Fit_L0146[:,j]
-          #print(coeffL)
-          
-          #parametersG, _ = curve_fit(Gaussian,X,Y, sigma=sigma)
-          #coeffG = parametersG
-          #Fit_G[:,j]=Legendre_series(X,coeff[0],coeff[1],coeff[2]) 
-          
-          #FIT[:,j]=Fit_G;
-          
-          FIT[:,j]/FIT[:,j].max(axis=0)
-          deg=6
-          parameters_full=np.polynomial.legendre.legfit(X,Y,deg)
-          coeff_full=parameters_full
-          #print(coeff_full)
-          Fit_L0123456[:,j]=Legendre_series_full(X,coeff_full[0],coeff_full[1],coeff_full[2],coeff_full[3])
-          Int_L012=np.polynomial.legendre.legint(Y,2)
-          #print(Int_L012)
-          #legvander3d - FOOD FOR THOUGHT
-          #for i, ax in enumerate(axs.flatten()):
-          #    ax.hist(data[i])
-          #    ax.set_title(f'Dataset {i+1}')
-         
-          
-          #If the fitting moves the peak... EXTREME CASES
-          #MAXX[j] = Fit_L0123456[lo_li:up_li,1].max(axis=0)
-          #Index_MAXX[j] = int(Fit_L0123456[lo_li:up_li,1].argmax(axis=0))+lo_li
-          #Index_MAXX_store[j]=Index_MAXX[j]
-          
-          #if Index_MAXX[j] < Quarter+1:
-          #      Y2=Fit_L0146[int(Index_MAXX[j]):int(Index_MAXX[j]+Quarter),j]/Fit_L0146[int(Index_MAXX[j]):int(Index_MAXX[j]+Quarter),j].max(axis=0)
-                #Y=np.flip(Y)
-          #else:   
-          #      Y2=Fit_L0146[int(Index_MAXX[j]-Quarter):int(Index_MAXX[j]),j]/Fit_L0146[int(Index_MAXX[j]-Quarter):int(Index_MAXX[j]),j].max(axis=0)
-          #      Y2=np.flip(Y)  
-          #print(np.size(Y))
-          #XRaw2 = np.arange(0,np.size(Y2),1)     
-          #X=XRaw2*np.pi/Half
-          
-          
-          if plot and ax_preview is not None:
-              print(f"Plotting preview for column {j}, len(X)={len(X)}, len(FIT[:,j])={len(FIT[:,j])}")
-              color = colors[j]
-              x_preview = np.degrees(X)
-              preview_x_min = min(preview_x_min, np.min(x_preview))
-              preview_x_max = max(preview_x_max, np.max(x_preview))
-              preview_y_min = min(preview_y_min, np.min(Y))
-              preview_y_max = max(preview_y_max, np.max(Y))
-              ax_preview.scatter(
-                  x_preview,
-                  Y,
-                  s=22,
-                  linewidth=0.7,
-                  facecolors="none",
-                  edgecolors=color,
-              )
-              ax_preview.plot(
-                  x_preview,
-                  FIT[:, j],
-                  color="black",
-                  linewidth=1.0,
-                  alpha=0.9,
-              )
+    if method=='fitting':
+
+        for j in range(0,DataN):    
+            #print(j)
+            #if Index_MAXX[j] - Quarter <0:
+            #    Y=DataNorm[int(Index_MAXX[j]+Half-Quarter):int(Index_MAXX[j]+Half+Quarter),j]/DataNorm[int(Index_MAXX[j]+Half-Quarter):int(Index_MAXX[j]+Half+Quarter),j].max(axis=0)
+            #else:
+            #    Y=DataNorm[int(Index_MAXX[j]-Quarter):int(Index_MAXX[j]+Quarter),j]/DataNorm[int(Index_MAXX[j]-Quarter):int(Index_MAXX[j]+Quarter),j].max(axis=0)
     
-       
-          Integration_denominator[j]=integrate.trapezoid(FIT[:,j]*np.sin(X),X);
-          
-          Integration_numerator_P2[j]=integrate.trapezoid(FIT[:,j]*np.cos(X)**2*np.sin(X),X)
-          AvgP2[j]=Integration_numerator_P2[j]/Integration_denominator[j]
-    
-          Integration_numerator_P4[j]=integrate.trapezoid(FIT[:,j]*np.cos(X)**4*np.sin(X),X)
-          AvgP4[j]=Integration_numerator_P4[j]/Integration_denominator[j];
-    
-          Integration_numerator_P6[j]=integrate.trapezoid(FIT[:,j]*np.cos(X)**6*np.sin(X),X)
-          AvgP6[j]=Integration_numerator_P6[j]/Integration_denominator[j]
-          
-          HoP[j]= (3*AvgP2[j]-1)/2; 
-          P2[j] = HoP[j]
-          P4[j] = (35*AvgP4[j]-30*AvgP2[j]+3)/8
-          P6[j] = (231*AvgP6[j]-315*AvgP4[j]+ 105*AvgP2[j]-5)/16;
-          #P8(j) = 
-    
-          if HoP[j]<Threshold:
-              HoP[j]=0
-              P4[j]=0
-              P6[j]=0
+            if Index_MAXX[j] < Quarter+Criterium:
+                    start_idx = int(Index_MAXX[j])
+                    stop_idx = int(Index_MAXX[j]+Quarter)
+                    seg = DataNorm[start_idx:stop_idx, j]
+                    peak = np.nanmax(seg)
+                    if not np.isfinite(peak) or peak <= 0:
+                        Y = np.zeros_like(seg)
+                    else:
+                        Y = seg / peak
+            else:   
+                    start_idx = int(Index_MAXX[j]-Quarter)
+                    stop_idx = int(Index_MAXX[j])
+                    seg = DataNorm[start_idx:stop_idx, j]
+                    peak = np.nanmax(seg)
+                    if not np.isfinite(peak) or peak <= 0:
+                        Y = np.zeros_like(seg)
+                    else:
+                        Y = seg / peak
+                    Y = np.flip(Y)
+            XRaw1 = np.arange(0,np.size(Y),1)     
+            X=(XRaw1)*np.pi/Half   
+            print(np.size(X))
+            print(np.size(Y))
+            
+            
+            #print(Legendre_series(X,coeff[0],coeff[1],coeff[2],coeff[3]))
+            
+            sigma = np.ones(len(X))
+            #sigma[0] = 0.05
+            sigma[0] = sigma_zero
+            #sigma[1] = 0.05
+            try:
+                parametersL, _ = curve_fit(Lorentzian_Gaussian,X,Y, sigma=sigma)
+                #print(Y)
+                coeffL = parametersL
+                Fit_Lor[:,j]=Lorentzian_Gaussian(X, coeffL[0], coeffL[1], coeffL[2], coeffL[3], coeffL[4], coeffL[5], coeffL[6], coeffL[7])
+                FIT[:,j] = Fit_Lor[:,j]
+            except RuntimeError:
+                print("Lorentzian-Gaussian fit failed; switching to Legendre series")
+                #popt, pcov = curve_fit(model_func, x, y, p0=(0.1 ,1e-3, 0.1), sigma=sigma)
+                parameters, _ = curve_fit(Legendre_series,X,Y, sigma=sigma)
+                coeff = parameters
+                Fit_L0146[:,j]=Legendre_series(X,coeff[0],coeff[1],coeff[2],coeff[3],coeff[4])
+                FIT[:,j] = Fit_L0146[:,j]
+            #print(coeffL)
+            
+            #parametersG, _ = curve_fit(Gaussian,X,Y, sigma=sigma)
+            #coeffG = parametersG
+            #Fit_G[:,j]=Legendre_series(X,coeff[0],coeff[1],coeff[2]) 
+            
+            #FIT[:,j]=Fit_G;
+            
+            FIT[:,j]/FIT[:,j].max(axis=0)
+            deg=6
+            parameters_full=np.polynomial.legendre.legfit(X,Y,deg)
+            coeff_full=parameters_full
+            #print(coeff_full)
+            Fit_L0123456[:,j]=Legendre_series_full(X,coeff_full[0],coeff_full[1],coeff_full[2],coeff_full[3])
+            Int_L012=np.polynomial.legendre.legint(Y,2)
+            #print(Int_L012)
+            #legvander3d - FOOD FOR THOUGHT
+            #for i, ax in enumerate(axs.flatten()):
+            #    ax.hist(data[i])
+            #    ax.set_title(f'Dataset {i+1}')
+            
+            
+            #If the fitting moves the peak... EXTREME CASES
+            #MAXX[j] = Fit_L0123456[lo_li:up_li,1].max(axis=0)
+            #Index_MAXX[j] = int(Fit_L0123456[lo_li:up_li,1].argmax(axis=0))+lo_li
+            #Index_MAXX_store[j]=Index_MAXX[j]
+            
+            #if Index_MAXX[j] < Quarter+1:
+            #      Y2=Fit_L0146[int(Index_MAXX[j]):int(Index_MAXX[j]+Quarter),j]/Fit_L0146[int(Index_MAXX[j]):int(Index_MAXX[j]+Quarter),j].max(axis=0)
+                    #Y=np.flip(Y)
+            #else:   
+            #      Y2=Fit_L0146[int(Index_MAXX[j]-Quarter):int(Index_MAXX[j]),j]/Fit_L0146[int(Index_MAXX[j]-Quarter):int(Index_MAXX[j]),j].max(axis=0)
+            #      Y2=np.flip(Y)  
+            #print(np.size(Y))
+            #XRaw2 = np.arange(0,np.size(Y2),1)     
+            #X=XRaw2*np.pi/Half
+            
+            
+            if plot and ax_preview is not None:
+                print(f"Plotting preview for column {j}, len(X)={len(X)}, len(FIT[:,j])={len(FIT[:,j])}")
+                color = colors[j]
+                x_preview = np.degrees(X)
+                preview_x_min = min(preview_x_min, np.min(x_preview))
+                preview_x_max = max(preview_x_max, np.max(x_preview))
+                preview_y_min = min(preview_y_min, np.min(Y))
+                preview_y_max = max(preview_y_max, np.max(Y))
+                ax_preview.scatter(
+                    x_preview,
+                    Y,
+                    s=22,
+                    linewidth=0.7,
+                    facecolors="none",
+                    edgecolors=color,
+                )
+                ax_preview.plot(
+                    x_preview,
+                    FIT[:, j],
+                    color="black",
+                    linewidth=1.0,
+                    alpha=0.9,
+                )
+        
+        
+            Integration_denominator[j]=integrate.trapezoid(FIT[:,j]*np.sin(X),X);
+            
+            Integration_numerator_P2[j]=integrate.trapezoid(FIT[:,j]*np.cos(X)**2*np.sin(X),X)
+            AvgP2[j]=Integration_numerator_P2[j]/Integration_denominator[j]
+        
+            Integration_numerator_P4[j]=integrate.trapezoid(FIT[:,j]*np.cos(X)**4*np.sin(X),X)
+            AvgP4[j]=Integration_numerator_P4[j]/Integration_denominator[j];
+        
+            Integration_numerator_P6[j]=integrate.trapezoid(FIT[:,j]*np.cos(X)**6*np.sin(X),X)
+            AvgP6[j]=Integration_numerator_P6[j]/Integration_denominator[j]
+            
+            HoP[j]= (3*AvgP2[j]-1)/2; 
+            P2[j] = HoP[j]
+            P4[j] = (35*AvgP4[j]-30*AvgP2[j]+3)/8
+            P6[j] = (231*AvgP6[j]-315*AvgP4[j]+ 105*AvgP2[j]-5)/16;
+            #P8(j) = 
+        
+            if HoP[j]<Threshold:
+                HoP[j]=0
+                P4[j]=0
+                P6[j]=0
               #P8[j]=
           #print(HoP[j])
     #fig, ax = plt.subplots(1,1)
@@ -382,6 +409,69 @@ def P2468OAS_v3_3(
     #line, = ax.plot([], [], 'r-', lw=3)
 
     #ani = animate(fig, X, Y animate, frames=19, interval=200, repeat=False)
+
+    elif method=='direct':
+        for j in range(0, DataN):
+            if Index_MAXX[j] < Quarter+Criterium:
+                start_idx = int(Index_MAXX[j])
+                stop_idx = int(Index_MAXX[j] + Quarter)
+                seg = DataNorm[start_idx:stop_idx, j]
+                Y = seg
+            else:
+                start_idx = int(Index_MAXX[j] - Quarter)
+                stop_idx = int(Index_MAXX[j])
+                seg = DataNorm[start_idx:stop_idx, j]
+                Y = np.flip(seg)
+            Y = np.nan_to_num(Y, nan=0.0, posinf=0.0, neginf=0.0)
+            XRaw1 = np.arange(0, np.size(Y), 1)
+            X = XRaw1 * np.pi / Half
+
+            if plot and ax_preview is not None:
+                color = colors[j]
+                x_preview = np.degrees(X)
+                preview_x_min = min(preview_x_min, np.min(x_preview))
+                preview_x_max = max(preview_x_max, np.max(x_preview))
+                preview_y_min = min(preview_y_min, np.min(Y))
+                preview_y_max = max(preview_y_max, np.max(Y))
+                ax_preview.scatter(
+                    x_preview,
+                    Y,
+                    s=22,
+                    linewidth=0.7,
+                    facecolors="none",
+                    edgecolors=color,
+                )
+                ax_preview.plot(
+                    x_preview,
+                    Y,
+                    color="black",
+                    linewidth=0.8,
+                    alpha=0.6,
+                )
+
+            denominator = integrate.trapezoid(Y * np.sin(X), X)
+            if not np.isfinite(denominator) or denominator <= 0:
+                HoP[j] = 0.0
+                P2[j] = 0.0
+                P4[j] = 0.0
+                P6[j] = 0.0
+                continue
+
+            avgP2 = integrate.trapezoid(Y * np.cos(X) ** 2 * np.sin(X), X) / denominator
+            avgP4 = integrate.trapezoid(Y * np.cos(X) ** 4 * np.sin(X), X) / denominator
+            avgP6 = integrate.trapezoid(Y * np.cos(X) ** 6 * np.sin(X), X) / denominator
+
+            HoP[j] = (3 * avgP2 - 1) / 2
+            P2[j] = HoP[j]
+            P4[j] = (35 * avgP4 - 30 * avgP2 + 3) / 8
+            P6[j] = (231 * avgP6 - 315 * avgP4 + 105 * avgP2 - 5) / 16
+
+            if HoP[j] < Threshold:
+                HoP[j] = 0.0
+                P2[j] = 0.0
+                P4[j] = 0.0
+                P6[j] = 0.0
+
     
     All_in_1 = np.zeros((DataN,4))
     
@@ -403,18 +493,52 @@ def P2468OAS_v3_3(
                 ax_preview.set_xlim(preview_x_min - pad_x, preview_x_max + pad_x)
         if ax_pvals is not None:
             # Keep P2 colored consistently with raw/preview traces for cross-checking
-            ax_pvals.scatter(
+            color_slice = colors[: len(x_time)]
+            p2_scatter = ax_pvals.scatter(
                 x_time,
                 P2,
-                s=12,
-                c=colors[: len(x_time)],
+                s=18,
+                c=color_slice,
                 label="P2",
+                edgecolors="black",
+                linewidths=0.5,
             )
-            ax_pvals.scatter(x_time, P4, s=12, label="P4")
-            ax_pvals.scatter(x_time, P6, s=12, label="P6")
-            ax_pvals.legend(loc="upper right")
+            p4_scatter = ax_pvals.scatter(
+                x_time,
+                P4,
+                s=45,
+                c=color_slice,
+                marker="s",
+                label="P4",
+                edgecolors="black",
+                linewidths=0.5,
+            )
+            p6_scatter = ax_pvals.scatter(
+                x_time,
+                P6,
+                s=82.5,
+                c=color_slice,
+                marker="*",
+                label="P6",
+                edgecolors="black",
+                linewidths=0.5,
+            )
+            legend_color = color_slice[0] if len(color_slice) else "black"
+            legend_handles = [
+                Line2D([], [], marker="o", linestyle="", markersize=7, markerfacecolor=legend_color, markeredgecolor="black", label="P2"),
+                Line2D([], [], marker="s", linestyle="", markersize=8.5, markerfacecolor=legend_color, markeredgecolor="black", label="P4"),
+                Line2D([], [], marker="*", linestyle="", markersize=11, markerfacecolor=legend_color, markeredgecolor="black", label="P6"),
+            ]
+            ax_pvals.legend(handles=legend_handles, loc="upper right")
         if ax_hop is not None:
-            ax_hop.scatter(x_time, HoP, s=10)
+            ax_hop.scatter(
+                x_time,
+                Index_MAXX_store,
+                s=52.5,
+                c=color_slice,
+                edgecolors="black",
+                linewidths=0.5,
+            )
         fig.tight_layout()
         if save_prefix is not None:
             try:

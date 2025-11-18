@@ -723,13 +723,15 @@ class MainWindow(tk.Tk):
         layout = ttk.Frame(new_window)
         layout.pack(fill=tk.BOTH, expand=True)
 
-        smoo_default, sigma_default, lower_default, upper_default = get_last_used_saxs_parameters()
+        smoo_default, sigma_default, lower_default, upper_default, method_default, mirror_default = get_last_used_saxs_parameters()
         smoo_var = tk.DoubleVar(value=smoo_default)
         sigma_var = tk.DoubleVar(value=sigma_default)
         lower_var = tk.DoubleVar(value=lower_default)
         upper_var = tk.DoubleVar(value=upper_default)
         fast_var = tk.BooleanVar(value=False)
         persist_defaults_var = tk.BooleanVar(value=False)
+        method_var = tk.StringVar(value=method_default)
+        mirror_var = tk.BooleanVar(value=mirror_default)
 
         params_frame = ttk.LabelFrame(layout, text="SAXS parameters")
         params_frame.pack(fill=tk.X, padx=10, pady=(10, 8))
@@ -747,6 +749,12 @@ class MainWindow(tk.Tk):
         options_row.grid(row=2, column=0, columnspan=4, sticky="w", padx=4, pady=(4, 2))
         ttk.Checkbutton(options_row, text="Fast (no plots)", variable=fast_var).pack(side=tk.LEFT)
         ttk.Checkbutton(options_row, text="Set as default", variable=persist_defaults_var).pack(side=tk.LEFT, padx=(12, 0))
+        method_row = ttk.Frame(params_frame)
+        method_row.grid(row=3, column=0, columnspan=4, sticky="w", padx=4, pady=(2, 4))
+        ttk.Label(method_row, text="Method:").pack(side=tk.LEFT)
+        ttk.Radiobutton(method_row, text="Fitting", value="fitting", variable=method_var).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Radiobutton(method_row, text="Direct", value="direct", variable=method_var).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Checkbutton(params_frame, text="Mirror azimuthal data", variable=mirror_var).grid(row=4, column=0, columnspan=4, sticky="w", padx=4, pady=(0,4))
 
         ttk.Label(layout, text=f"Processing {name} folder: {path}").pack(pady=8)
 
@@ -775,6 +783,8 @@ class MainWindow(tk.Tk):
                     add_action,
                     update_actions_list,
                     fast_var=fast_var.get(),
+                    method_choice=method_var,
+                    mirror_choice=mirror_var,
                 )
                 if persist_defaults_var.get():
                     save_default_saxs_parameters(
@@ -782,6 +792,8 @@ class MainWindow(tk.Tk):
                         sigma_var.get(),
                         lower_var.get(),
                         upper_var.get(),
+                        method_var.get(),
+                        mirror_var.get(),
                     )
             except Exception as exc:
                 messagebox.showerror("SAXS", f"Failed to process {sample_label}:\n{exc}")
