@@ -37,6 +37,8 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--saxs-sigma", type=float, default=0.5)
     ap.add_argument("--saxs-theta-min", type=float, default=2.0)
     ap.add_argument("--saxs-theta-max", type=float, default=180.0)
+    ap.add_argument("--saxs-method", choices=["fitting", "direct"], default="fitting",
+                    help="HoP computation method to use in SAXS processing.")
 
     # Rheology knobs
     ap.add_argument("--rheo-no-plots", action="store_true", help="Disable plotting in Rheology")
@@ -102,6 +104,7 @@ def run_saxs_standalone(py: str, base_dir: Path, ref_dir: Path, args: argparse.N
         str(args.saxs_theta_min),
         str(args.saxs_theta_max),
     ]
+    cmd += ["--method", args.saxs_method]
     env = os.environ.copy()
     if args.saxs_no_plots:
         env["MUDRAW_SAXS_NO_PLOTS"] = "1"

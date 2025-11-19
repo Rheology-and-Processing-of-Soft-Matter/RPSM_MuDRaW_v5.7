@@ -19,6 +19,8 @@ DEFAULT_SAXS_SMOOTHING = 0.04
 DEFAULT_SAXS_SIGMA = 0.5
 DEFAULT_SAXS_TMIN = 2.0
 DEFAULT_SAXS_TMAX = 180.0
+DEFAULT_SAXS_METHOD = "fitting"
+_SAXS_METHOD_CHOICES = {"fitting", "direct"}
 DEFAULT_RHEO_STEADY = 10.0
 
 
@@ -50,6 +52,7 @@ class BatchProcessingWindow(tk.Toplevel):
         self.var_saxs_sigma = tk.DoubleVar(value=DEFAULT_SAXS_SIGMA)
         self.var_saxs_tmin = tk.DoubleVar(value=DEFAULT_SAXS_TMIN)
         self.var_saxs_tmax = tk.DoubleVar(value=DEFAULT_SAXS_TMAX)
+        self.var_saxs_method = tk.StringVar(value=DEFAULT_SAXS_METHOD)
         self.var_saxs_no_plots = tk.BooleanVar(value=True)
         self.var_rheo_mode = tk.StringVar(value="triggered")
         self.var_rheo_steady = tk.DoubleVar(value=DEFAULT_RHEO_STEADY)
@@ -101,7 +104,11 @@ class BatchProcessingWindow(tk.Toplevel):
         ttk.Entry(sax, width=7, textvariable=self.var_saxs_tmin).pack(side=tk.LEFT)
         ttk.Label(sax, text="θ max").pack(side=tk.LEFT, padx=(12, 4))
         ttk.Entry(sax, width=7, textvariable=self.var_saxs_tmax).pack(side=tk.LEFT)
-        ttk.Checkbutton(sax, text="No plots", variable=self.var_saxs_no_plots).pack(side=tk.LEFT, padx=(12, 0))
+        sax_opts = ttk.Frame(adv); sax_opts.pack(fill=tk.X, padx=6, pady=(0, 4))
+        ttk.Label(sax_opts, text="SAXS method:").pack(side=tk.LEFT)
+        ttk.Radiobutton(sax_opts, text="Fitting", value="fitting", variable=self.var_saxs_method).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Radiobutton(sax_opts, text="Direct", value="direct", variable=self.var_saxs_method).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Checkbutton(sax_opts, text="No plots", variable=self.var_saxs_no_plots).pack(side=tk.LEFT, padx=(12, 0))
 
         rhe = ttk.Frame(adv); rhe.pack(fill=tk.X, padx=6, pady=(2, 4))
         ttk.Label(rhe, text="Rheology:").pack(side=tk.LEFT)
@@ -302,7 +309,8 @@ class BatchProcessingWindow(tk.Toplevel):
         cmd += ["--saxs-smoothing", str(self.var_saxs_smoothing.get()),
                 "--saxs-sigma", str(self.var_saxs_sigma.get()),
                 "--saxs-theta-min", str(self.var_saxs_tmin.get()),
-                "--saxs-theta-max", str(self.var_saxs_tmax.get())]
+                "--saxs-theta-max", str(self.var_saxs_tmax.get()),
+                "--saxs-method", self._get_saxs_method()]
         if self.var_saxs_no_plots.get():
             cmd += ["--saxs-no-plots"]
         cmd += ["--rheo-mode", self.var_rheo_mode.get(),
@@ -448,6 +456,12 @@ class BatchProcessingWindow(tk.Toplevel):
                 return iv if iv >= 1 else default
             except Exception:
                 return default
+        def _method(val, default):
+            try:
+                txt = str(val).strip().lower()
+            except Exception:
+                txt = ""
+            return txt if txt in _SAXS_METHOD_CHOICES else default
 
         self.var_overfolder.set(data.get("overfolder", self.var_overfolder.get()))
         self.var_modal_saxs.set(_bool(data.get("modal_saxs"), self.var_modal_saxs.get()))
@@ -463,6 +477,7 @@ class BatchProcessingWindow(tk.Toplevel):
         self.var_saxs_sigma.set(_float(data.get("saxs_sigma"), self.var_saxs_sigma.get()))
         self.var_saxs_tmin.set(_float(data.get("saxs_tmin"), self.var_saxs_tmin.get()))
         self.var_saxs_tmax.set(_float(data.get("saxs_tmax"), self.var_saxs_tmax.get()))
+        self.var_saxs_method.set(_method(data.get("saxs_method"), self.var_saxs_method.get()))
         self.var_saxs_no_plots.set(_bool(data.get("saxs_no_plots"), self.var_saxs_no_plots.get()))
         self.var_rheo_mode.set(data.get("rheo_mode", self.var_rheo_mode.get()))
         self.var_rheo_steady.set(_float(data.get("rheo_steady"), self.var_rheo_steady.get()))
@@ -484,6 +499,7 @@ class BatchProcessingWindow(tk.Toplevel):
             "saxs_sigma": self._float_from_var(self.var_saxs_sigma, DEFAULT_SAXS_SIGMA),
             "saxs_tmin": self._float_from_var(self.var_saxs_tmin, DEFAULT_SAXS_TMIN),
             "saxs_tmax": self._float_from_var(self.var_saxs_tmax, DEFAULT_SAXS_TMAX),
+            "saxs_method": self._get_saxs_method(),
             "saxs_no_plots": bool(self.var_saxs_no_plots.get()),
             "rheo_mode": self.var_rheo_mode.get(),
             "rheo_steady": self._float_from_var(self.var_rheo_steady, DEFAULT_RHEO_STEADY),
@@ -507,6 +523,20 @@ class BatchProcessingWindow(tk.Toplevel):
             except Exception:
                 pass
             return fallback
+
+    def _get_saxs_method(self) -> str:
+        """Return the selected SAXS HoP method, falling back to the default if invalid."""
+        try:
+            choice = str(self.var_saxs_method.get()).strip().lower()
+        except Exception:
+            choice = ""
+        if choice not in _SAXS_METHOD_CHOICES:
+            choice = DEFAULT_SAXS_METHOD
+            try:
+                self.var_saxs_method.set(choice)
+            except Exception:
+                pass
+        return choice
 
     def _on_close(self):
         self._save_settings()
