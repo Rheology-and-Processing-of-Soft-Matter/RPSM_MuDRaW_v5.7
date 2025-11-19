@@ -18,6 +18,7 @@ from scipy.optimize import curve_fit
 from scipy.special import legendre
 from scipy import integrate
 from scipy.signal import savgol_filter
+import warnings
 #matplotlib.rcParams['figure.figsize'] = (5, 10)
 from itertools import count
 import random
@@ -108,8 +109,8 @@ def P2468OAS_v3_3(
     DataB=DataShift
     #DataShift = File
 
-    if smoo_>0:
-        for i in range(0,DataN):
+    for i in range(0,DataN):
+        if smoo_>0:
             #DataB[:,i] = pd.DataFrame(File[:,i])
             #DataB[:,i].replace(0, np.nan, inplace=True)
             #if i<35: 
@@ -129,12 +130,27 @@ def P2468OAS_v3_3(
             #    Index_MAXX_store[i]=Index_MAXX_store[i]+360
             #print(np.shape(Index_MAXX))
             DataNorm= smooth_bak
-
-    else:   
-            Index_MAXX[i] = int(DataB[lo_li:up_li].argmax(axis=0))+lo_li
-            Index_MAXX_store[i]=((Index_MAXX[i])*360/DataM)-90
+        else:
+            column = DataB[:, i]
+            seg = column[lo_li:up_li]
+            if seg.size == 0:
+                local_idx = lo_li
+                local_max = 0.0
+            else:
+                with np.errstate(invalid="ignore"):
+                    local_max = np.nanmax(seg)
+                    max_idx = np.nanargmax(seg) if np.any(np.isfinite(seg)) else 0
+                if not np.isfinite(local_max):
+                    local_max = 0.0
+                    max_idx = 0
+                local_idx = int(max_idx) + lo_li
+            MAXX[i] = float(local_max)
+            Index_MAXX[i] = local_idx
+            Index_MAXX_store[i] = ((local_idx) * 360 / DataM) - 90
             Index_MAXX_store[i] = ((Index_MAXX_store[i] + 90) % 180) - 90
+            smooth_bak[:, i] = column
             DataNorm = DataB
+            smooth_bak = DataB
 
 
      
@@ -497,7 +513,7 @@ def P2468OAS_v3_3(
             p2_scatter = ax_pvals.scatter(
                 x_time,
                 P2,
-                s=18,
+                s=27,
                 c=color_slice,
                 label="P2",
                 edgecolors="black",
@@ -525,7 +541,7 @@ def P2468OAS_v3_3(
             )
             legend_color = color_slice[0] if len(color_slice) else "black"
             legend_handles = [
-                Line2D([], [], marker="o", linestyle="", markersize=7, markerfacecolor=legend_color, markeredgecolor="black", label="P2"),
+                Line2D([], [], marker="o", linestyle="", markersize=10.5, markerfacecolor=legend_color, markeredgecolor="black", label="P2"),
                 Line2D([], [], marker="s", linestyle="", markersize=8.5, markerfacecolor=legend_color, markeredgecolor="black", label="P4"),
                 Line2D([], [], marker="*", linestyle="", markersize=11, markerfacecolor=legend_color, markeredgecolor="black", label="P6"),
             ]
@@ -539,7 +555,9 @@ def P2468OAS_v3_3(
                 edgecolors="black",
                 linewidths=0.5,
             )
-        fig.tight_layout()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            fig.tight_layout()
         if save_prefix is not None:
             try:
                 fig.savefig(f"{save_prefix}_P2468_overview.png", dpi=150)

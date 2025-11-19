@@ -1,0 +1,13 @@
+{
+  "video": "/Volumes/Rheo server/MaxIV/2026 November Tetra Pak/Pre-tests/PLI/MVI_0378.MP4",
+  "processed_folder": "/Users/kroland/Library/CloudStorage/OneDrive-Chalmers/Documents/Website/GitHub/RPSM_MuDRaW_v5.7/Volumes/Rheo server/MaxIV/2026 November Tetra Pak/Pre-tests/_Processed",
+  "outputs": {
+    "color_png": "/Users/kroland/Library/CloudStorage/OneDrive-Chalmers/Documents/Website/GitHub/RPSM_MuDRaW_v5.7/Volumes/Rheo server/MaxIV/2026 November Tetra Pak/Pre-tests/_Processed/PLI/MVI_0378_st_circular.png",
+    "color_png_legacy": "/Volumes/Rheo server/MaxIV/2026 November Tetra Pak/Pre-tests/PLI/MVI_0378_st_circular.png"
+  },
+  "outputs_rel": {
+    "color_png_rel": "PLI/MVI_0378_st_circular.png",
+    "color_png_legacy_rel": "MVI_0378_st_circular.png"
+  },
+  "exclude_from_template": true
+}
