@@ -1,5 +1,5 @@
 {
-  "smoothing": 0.01,
+  "smoothing": 0.0,
   "sigma": 0.5,
   "theta_min": 1.0,
   "theta_max": 180.0,

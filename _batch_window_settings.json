@@ -1,7 +1,7 @@
 {
-  "overfolder": "/Users/kroland/Library/Mobile Documents/com~apple~CloudDocs/Temp/FR/Nguyen/202511 AFTER SPIKE ADJUSTMENT",
+  "overfolder": "/Volumes/Rheo server/MaxIV/2024 Oct/2025_Scans_RK",
   "modal_saxs": true,
-  "modal_rheo": true,
+  "modal_rheo": false,
   "skip_fresh": false,
   "dryrun": false,
   "log_level": "INFO",
